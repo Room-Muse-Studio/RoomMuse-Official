@@ -23,7 +23,7 @@
     '/assets/213ea483-4709-4d64-8179-5cb3519ad259.js', // CATALOGUE_SG
     '/assets/7c8a1d2e-4b60-4f31-9a5d-0e71c3ab2f48.js', // WG_CHAIR
     '/assets/524e990d-268f-4ebc-b34d-cbca8efd2abb.js', // SG_RENDER
-    '/meshy/meshy-catalog-v1.js',
+    '/meshy/meshy-catalog-v2.js',
     '/meshy/qrcode-1.4.4.js',
     '/packages/scan-sdk/dist/mozu-scan-sdk.global.js',
     '/roommuse/scan-room.js',

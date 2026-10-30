@@ -7371,7 +7371,7 @@ vals.childViews=[];
   const all=this.miFamilies(),sections=all;
   const catOf=code=>(all.find(s=>s.groups.some(g=>g.code===code))||{}).category;
   const selected=this.miProduct(m.family),prices=p=>this.unitPrice(this.geo({sku:p.id}),this.space()),label=p=>{const n=prices(p);return n==null?'Estimated Price on request':this.money(n);};
-  const sectionRows=sections.map(s=>{const active=s.category===m.category;return {category:s.category,title:s.title,countLabel:s.groups.length+' module'+(s.groups.length===1?'':'s'),toggleLabel:m.sections[s.category]?'−':'+',dimensions:(s.category==='electronics'?'Placeholder · not supplied by WiseGlobe':s.category==='wall'?'350 mm deep · 900 mm high':s.category==='base'?'600 mm deep · '+this.countertopHeight()+' mm high':s.category==='tall'?'600 mm deep · 2400 mm high':'Dimensions vary by module'),open:m.sections[s.category],visible:active,onToggle:()=>{m.sections[s.category]=!m.sections[s.category];this.miRefresh();},cards:s.groups.map(f=>{const p=this.miProduct(f.code),nums=f.variants.map(prices).filter(Number.isFinite),minimum=nums.length?Math.min(...nums):null;return {accessibleLabel:f.code+' · '+f.variants[0].name,code:f.code,name:f.variants[0].name,img:p.img||this.TPX,hasImage:!!p.img,imgStyle:this.miThumbnail(p),widths:[...new Set(f.variants.map(p=>p.w))].join(' · ')+' mm',price:s.category==='electronics'?'Placeholder · not quoted':minimum==null?'Estimated Price on request':'From '+this.money(minimum),selected:m.family===f.code,onClick:()=>this.miSelect(f.code),onDoubleClick:e=>{e.preventDefault();e.stopPropagation();if(m.dragging)return;this.miSelect(f.code);this.miAdd();},onKey:e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();this.miSelect(f.code);}},onDragStart:e=>{if(p.disabled||p.available===false){e.preventDefault();return;}m.family=f.code;m.dragging=true;this.dragSku=p.id;e.dataTransfer?.setData('text/plain',p.id);if(e.dataTransfer)e.dataTransfer.effectAllowed='copy';},onDragEnd:()=>{m.dragging=false;this.dragSku=null;this.v3dClearLibraryGhost();this.miRefresh();}};})};});
+  const sectionRows=sections.map(s=>{const active=s.category===m.category;return {category:s.category,title:s.title,countLabel:s.groups.length+' module'+(s.groups.length===1?'':'s'),toggleLabel:m.sections[s.category]?'−':'+',dimensions:(s.category==='electronics'?'Placeholder · not supplied by WiseGlobe':s.category==='wall'?'350 mm deep · 900 mm high':s.category==='base'?'600 mm deep · '+this.countertopHeight()+' mm high':s.category==='tall'?'600 mm deep · 2400 mm high':'Dimensions vary by module'),open:m.sections[s.category],visible:active,onToggle:()=>{m.sections[s.category]=!m.sections[s.category];this.miRefresh();},cards:s.groups.map(f=>{const p=this.miProduct(f.code),nums=f.variants.map(prices).filter(Number.isFinite),minimum=nums.length?Math.min(...nums):null,single=nums.length>0&&Math.max(...nums)===minimum;return {accessibleLabel:f.code+' · '+f.variants[0].name,code:f.code,name:f.variants[0].name,img:p.img||this.TPX,hasImage:!!p.img,imgStyle:this.miThumbnail(p),widths:[...new Set(f.variants.map(p=>p.w))].join(' · ')+' mm',price:s.category==='electronics'?'Placeholder · not quoted':minimum==null?'Estimated Price on request':(single?'':'From ')+this.money(minimum),selected:m.family===f.code,onClick:()=>this.miSelect(f.code),onDoubleClick:e=>{e.preventDefault();e.stopPropagation();if(m.dragging)return;this.miSelect(f.code);this.miAdd();},onKey:e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();this.miSelect(f.code);}},onDragStart:e=>{if(p.disabled||p.available===false){e.preventDefault();return;}m.family=f.code;m.dragging=true;this.dragSku=p.id;e.dataTransfer?.setData('text/plain',p.id);if(e.dataTransfer)e.dataTransfer.effectAllowed='copy';},onDragEnd:()=>{m.dragging=false;this.dragSku=null;this.v3dClearLibraryGhost();this.miRefresh();}};})};});
   const editorVariants=g?this.miFamily(g.model||it.sku)?.variants||[]:[],hardware=g?this.libraryFunctionalHardware(this.prod(it.sku)):null,layout=g?this.v3dDetailLayout(g):null,counts={};for(const f of layout?.fronts||[])counts[f.kind]=(counts[f.kind]||0)+1;
   const result={...v,miHeaderLabel:edit?'Edit Cabinet':'Module Index',miHeaderTitle:edit?'Edit this cabinet':'WiseGlobe furniture at a glance',miHeaderDescription:edit?'Changes apply to your selected cabinet.':'Browse by category. Pick an item. Add it to the room, then set its colour.',miSelectedPriceLabel:selected?(catOf(m.family)==='electronics'?'Not supplied by WiseGlobe · not in your estimate':'Estimated Price · '+label(selected)):'',miMode:mode,miPanel:mode!=='native',miIndex:mode==='index',miEditor:edit,miExtra:mode==='extras',miWide:wide,miSections:sectionRows,miEmpty:!sections.some(s=>s.groups.length),rmCatEmpty:!(sectionRows.find(r=>r.category===m.category)||{}).count,miScrollRef:this.miScrollRef,miScroll:e=>{m.scroll=e.currentTarget.scrollTop;},miCategories:all.map(s=>({label:({seating:'Seating',sleeping:'Sleeping',storage:'Storage',workspace:'Workspace',outdoor:'Outdoor',electronics:'Electronics'})[s.category],selected:s.category===m.category,onClick:()=>{m.category=s.category;m.scroll=0;if(this.miScrollRef.current)this.miScrollRef.current.scrollTop=0;this.miRefresh();}})),miSelected:!!selected,miSelectedTitle:selected?(selected.model||selected.id)+' · '+selected.name:'Select a module to choose its width',miSelectedPrice:selected?(catOf(m.family)==='electronics'?'':label(selected)):'',miWidths:selected?this.miFamily(selected.model||selected.id).variants.map(p=>({label:p.w+' mm'+(this.miFamily(selected.model||selected.id).variants.filter(q=>q.w===p.w).length>1?' · '+p.sku:''),selected:p.id===selected.id,disabled:!!p.disabled||p.available===false,onClick:()=>{m.widths[selected.model||selected.id]=p.id;this.miRefresh();}})):[],miAdd:()=>this.miAdd(),miAddLabel:m.replace?'Replace Cabinet':'Add to Space',
    miArShow:!!selected&&catOf(m.family)!=='electronics',
@@ -7395,6 +7395,8 @@ vals.childViews=[];
  for(const k of ['renderVals','snapPlacement','snapX','backWallOptions','cabinetSnapOptions','v3dSync','updateViewChildAnchor'])O[k]=P[k];
  const paths={
   surfaces:'<path d="M12 3a9 9 0 1 0 0 18h1.6a1.9 1.9 0 0 0 1.4-3.3 1.9 1.9 0 0 1 1.4-3.3H18a3 3 0 0 0 3-3.1A9 9 0 0 0 12 3Z"/><circle cx="7.6" cy="13" r="1.15" fill="black"/><circle cx="9.2" cy="8.6" r="1.15" fill="black"/><circle cx="13.6" cy="7.2" r="1.15" fill="black"/>',
+  eye:'<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
+  ceiling:'<path d="M3 4h18M12 4v5M7.5 14a4.5 4.5 0 0 1 9 0ZM10.5 17.5h3"/>',
   labels:'<path d="M3 4.5A1.5 1.5 0 0 1 4.5 3H12l9 9-9 9-9-9Z"/><circle cx="7.8" cy="7.8" r="1.4"/>',
   '2d':'<path d="M3 5h18v14H3zM3 9h18M8 9v10"/>',
   '3d':'<path d="m12 2 9 5v10l-9 5-9-5V7zM3 7l9 5 9-5M12 12v10"/>',
@@ -7476,7 +7478,11 @@ vals.childViews=[];
    button('surfaces','Wall & Floor',()=>this.rmToggleSurfaces&&this.rmToggleSurfaces(),false,
      !!(this.rmSurfacesOpen&&this.rmSurfacesOpen()),'Colour the floor and each wall separately'),
    button('labels',S.rmHideLabels?'Show Labels':'Hide Labels',()=>this.rmToggleWallLabels&&this.rmToggleWallLabels(),false,!!S.rmHideLabels,
-     S.rmHideLabels?'Show the wall name labels':'Hide the wall name labels')
+     S.rmHideLabels?'Show the wall name labels':'Hide the wall name labels'),
+   button('ceiling',S.rmHideCeiling?'Show Ceiling':'Hide Ceiling',()=>this.rmToggleCeiling&&this.rmToggleCeiling(),false,!!S.rmHideCeiling,
+     S.rmHideCeiling?'Put the ceiling back':'Take the ceiling off to see into the room from above'),
+   button('eye',S.rmEye?'Overview':'Eye Level',()=>this.rmToggleEye&&this.rmToggleEye(),false,!!S.rmEye,
+     S.rmEye?'Back to the overview of the whole room':'Stand in the room at eye height')
   ];
   const views=v.primaryViews.map((item,i)=>({...item,iconStyle:icon(i?'3d':'2d'),disabled:!!this.drag}));
   // Secondary view tools remain reachable through Layers, without crowding the dock.
@@ -7514,7 +7520,7 @@ vals.childViews=[];
    const selected=m.selected===p.groupKey,product=this.prod(p.sku),choose=()=>{m.selected=p.groupKey;this.miRefresh();};
    const add=e=>{if(m.dragging||p.addDisabled)return;m.adding=true;try{p.onQuickAdd(e);}finally{m.adding=false;this._prototypePanelHidden=true;this.setState({libraryDrawerOpen:true});}};
    const prices=p.widthOptions.map(w=>this.prod(w.value)).map(v=>v.extra?v.price:this.unitPrice({id:v.id,cat:v.cat,prices:v.prices,price:v.price,w:v.w,baseW:v.w,priceOnRequest:v.priceOnRequest},this.space())).filter(Number.isFinite);
-   return {...p,selected,code:product.model||product.id,hasImage:!!product.img,widths:product.extra?'':p.widthOptions.map(w=>w.label).join(' · '),browsePrice:product.extra?p.priceLabel:prices.length?'From '+this.money(Math.min(...prices)):'Estimated Price on request',selectedPrice:p.priceLabel.startsWith('Estimated')?p.priceLabel:'Estimated Price · '+p.priceLabel,
+   return {...p,selected,code:product.model||product.id,hasImage:!!product.img,widths:product.extra?'':p.widthOptions.map(w=>w.label).join(' · '),browsePrice:product.extra?p.priceLabel:prices.length?(Math.max(...prices)===Math.min(...prices)?'':'From ')+this.money(Math.min(...prices)):'Estimated Price on request',selectedPrice:p.priceLabel.startsWith('Estimated')?p.priceLabel:'Estimated Price · '+p.priceLabel,
     onClick:choose,onKey:e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();choose();}},onDoubleClick:e=>{e.preventDefault();e.stopPropagation();choose();add(e);},onAdd:add,
     onDragStart:e=>{m.dragging=true;choose();p.onDragStart(e);},onDragEnd:e=>{m.dragging=false;p.onDragEnd(e);},
     addLabel:product.extra?'Add accessory':'Add to Space'};
@@ -8679,6 +8685,14 @@ const blankProject=()=>({id:uid(),name:'',client:'',scenario:'living',rooms:['li
   const T=this._v3d,g=T&&T.room&&T.room.children.find(c=>c.name==='rm-wall-names');
   if(g){g.visible=!hide;T.dirty=true;}
  };
+ // A view switch, like the labels: it changes what is drawn, not the design,
+ // so it stays out of the undo history and the saved project.
+ P.rmToggleCeiling=function(){
+  const hide=!this.state.rmHideCeiling;
+  this.setState({rmHideCeiling:hide});
+  const T=this._v3d;
+  if(T&&T.room){T.room.traverse(o=>{if(o.name==='ceiling')o.visible=!hide;});T.shadowStale=true;T.dirty=true;}
+ };
 
 function stepScreen(){
   const p=project();if(!p)return '';
@@ -9026,6 +9040,8 @@ function styleScreen(p){
  }
  function addWallNames(app,sp,root){
   if(typeof THREE==='undefined')return;
+  if(app.rmUpdateAO)app.rmUpdateAO(sp);
+  if(app.state.rmHideCeiling)root.traverse(o=>{if(o.name==='ceiling')o.visible=false;});
   const R=app.v3dRoomDims(sp),m3=n=>app.m3(n),group=new THREE.Group();
   group.name='rm-wall-names';
   group.visible=!app.state.rmHideLabels;
@@ -9501,7 +9517,7 @@ function styleScreen(p){
   // once it is furnished, so they get a switch of their own.
   const dimsBtn=(v.ctUtilities||[]).find(b=>b.key==='dimensions');
   const dimsOff=!!this.state.rmHideDims;
-  out.ctUtilities=[...(v.ctUtilities||[]).filter(b=>['reset','iso','surfaces','labels'].includes(b.key)),
+  out.ctUtilities=[...(v.ctUtilities||[]).filter(b=>['reset','eye','iso','surfaces','labels','ceiling'].includes(b.key)),
    ...(dimsBtn?[{...dimsBtn,key:'rmdims',
      label:dimsOff?'Show Dimensions':'Hide Dimensions',
      tooltip:dimsOff?'Show the room and wall measurements':'Hide the room and wall measurements',
@@ -10072,8 +10088,196 @@ function styleScreen(p){
     m.color.set('#E9E4DA');m.roughness=0.5;m.metalness=0;m.envMapIntensity=0.55;
     m.map=null;m.bumpMap=null;
    }
+   this.rmLookMat(kind,m);
    m.needsUpdate=true;
   };
+
+  /* Photographed surfaces (ambientCG, CC0) in apps/web/textures. The canvas grain
+     above stays as the fallback until they load, and for good if they fail. */
+  let REAL=null;
+  const loadReal=app=>{
+   if(REAL)return REAL;
+   REAL={ready:false,failed:false};
+   if(typeof THREE==='undefined'||!THREE.TextureLoader){REAL.failed=true;return REAL;}
+   const L=new THREE.TextureLoader();let left=4;
+   const done=()=>{if(--left)return;REAL.ready=!REAL.failed;
+    try{const T=app._v3d;if(T&&T.mats){
+     for(const [k,m] of T.mats)if(/^(wall|floor)(:|$)/.test(k))app.v3dTuneMat(k,m);
+     T.shadowStale=true;T.dirty=true;}}catch(e){}};
+   const get=(file,srgb)=>L.load('textures/'+file,t=>{
+     t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=8;
+     if(srgb&&THREE.sRGBEncoding!=null)t.encoding=THREE.sRGBEncoding;
+     done();},undefined,()=>{REAL.failed=true;done();});
+   REAL.floor=get('floor_color.jpg',true);REAL.floorN=get('floor_normal.jpg');
+   REAL.floorR=get('floor_rough.jpg');REAL.wallN=get('wall_normal.jpg');
+   return REAL;
+  };
+  const FLOOR_TILE_M=1.6,WALL_TILE_M=1.5;
+  /* Corner shading. A real room darkens where two surfaces meet: along the
+     foot of each wall, into the corners, under the ceiling. Screen-space AO
+     would need a post-processing pass that also re-grades every finish
+     colour, so the room shell works it out from its own footprint instead. */
+  // Built on first use: three.js arrives after this code is evaluated.
+  let AOU=null;
+  const AO=()=>AOU||(AOU={rmAoSeg:{value:Array.from({length:12},()=>new THREE.Vector4())},rmAoN:{value:0},rmAoH:{value:2.7}});
+  const aoPatch=kind=>shader=>{
+   Object.assign(shader.uniforms,AO());
+   shader.vertexShader='varying vec3 vRmW;\n'+shader.vertexShader.replace('#include <project_vertex>',
+    '#include <project_vertex>\nvRmW=(modelMatrix*vec4(transformed,1.0)).xyz;');
+   shader.fragmentShader=['varying vec3 vRmW;','uniform vec4 rmAoSeg[12];','uniform int rmAoN;','uniform float rmAoH;',
+    'float rmSegD(vec2 p,vec4 s){vec2 ab=s.zw-s.xy;float t=clamp(dot(p-s.xy,ab)/max(dot(ab,ab),1e-6),0.0,1.0);return length(p-(s.xy+ab*t));}',
+    ''].join('\n')+shader.fragmentShader.replace('#include <aomap_fragment>',['#include <aomap_fragment>',
+    '{vec2 q=vRmW.xz;float dW=1e3,dC=1e3;',
+    ' for(int i=0;i<12;i++){if(i>=rmAoN)break;dW=min(dW,rmSegD(q,rmAoSeg[i]));dC=min(dC,length(q-rmAoSeg[i].xy));}',
+    ' float ao=1.0;',
+    kind==='floor'
+     ?' ao*=1.0-0.48*exp(-dW/0.30);ao*=1.0-0.30*exp(-dC/0.60);'
+     :' float y=vRmW.y;ao*=1.0-0.40*exp(-max(y,0.0)/0.30);ao*=1.0-0.25*exp(-max(rmAoH-y,0.0)/0.30);ao*=1.0-0.38*exp(-dC/0.40);',
+    ' reflectedLight.indirectDiffuse*=ao;reflectedLight.directDiffuse*=mix(1.0,ao,0.55);totalEmissiveRadiance*=ao;}'].join('\n'));
+  };
+  P.rmUpdateAO=function(sp){
+   try{
+    if(typeof THREE==='undefined')return;
+    const U=AO(),poly=this.rmRoomPolygon(sp),R=this.v3dRoomDims(sp),n=Math.min(poly.length,12);
+    for(let i=0;i<n;i++){const a=poly[i],b=poly[(i+1)%poly.length];
+     U.rmAoSeg.value[i].set(this.m3(a[0]),this.m3(a[1]),this.m3(b[0]),this.m3(b[1]));}
+    U.rmAoN.value=n;U.rmAoH.value=this.m3(R.h);
+   }catch(e){}
+  };
+  P.rmLookMat=function(kind,m){
+   if(kind!=='wall'&&kind!=='floor')return;
+   const r=loadReal(this);
+   if(r.ready){
+    if(kind==='floor'){
+     m.map=r.floor;m.bumpMap=null;m.normalMap=r.floorN;m.normalScale.set(0.55,0.55);
+     m.roughnessMap=r.floorR;m.roughness=0.92;m.envMapIntensity=0.4;
+     for(const t of [r.floor,r.floorN,r.floorR])t.repeat.set(1/FLOOR_TILE_M,1/FLOOR_TILE_M);
+    }else{
+     m.bumpMap=null;m.normalMap=r.wallN;m.normalScale.set(0.32,0.32);
+     r.wallN.repeat.set(1/WALL_TILE_M,1/WALL_TILE_M);
+    }
+   }
+   // The wall glow was there to keep the picked colour from reading dark; at
+   // full strength it also flattened every shadow and corner out of the room.
+   if(kind==='wall')m.emissiveIntensity=0.12;
+   m.onBeforeCompile=aoPatch(kind);
+   m.customProgramCacheKey=()=>'rm-look-'+kind;
+  };
+
+  /* Contact shadows. The key light's shadow is hard and leaves furniture
+     looking pasted on the floor; a soft dark pool under each piece is what
+     sets it down. The pool lives outside the item group, so selection boxes
+     and picking never see it, and follows the item on every frame. */
+  let BLOB=null,BLOB_MAT=null,BLOB_GEO=null;
+  const blobTex=()=>{
+   if(BLOB)return BLOB;
+   // A soft-edged rectangle built from stacked translucent fills. The
+   // footprint fills the middle 70%; the fade starts well inside it, so the
+   // pool is darkest under the piece and only a soft halo shows around it. Gradient,
+   // blur-filter and canvas-shadow versions of this all uploaded to WebGL
+   // with no visible alpha in Chrome; plain fills do.
+   const c=document.createElement('canvas');c.width=c.height=256;
+   const x=c.getContext('2d');
+   x.fillStyle='rgba(0,0,0,0.032)';
+   for(let k=0;k<40;k++){const s=k*2.5;x.fillRect(s,s,256-2*s,256-2*s);}
+   BLOB=new THREE.CanvasTexture(c);return BLOB;
+  };
+  P.rmContactShadows=function(){
+   const T=this._v3d;if(!T||!T.items||!T.scene||typeof THREE==='undefined')return;
+   if(!T.rmBlobs){T.rmBlobs=new THREE.Group();T.rmBlobs.name='rm-contact-shadows';T.scene.add(T.rmBlobs);}
+   const live=new Set(T.items.children);
+   // Item groups are rebuilt on every drag step. The pools share one material
+   // and one plane: disposing a material whose shader nothing else uses makes
+   // three.js delete the program and compile it again on the next frame,
+   // which is a visible hitch on every mouse move.
+   for(const b of [...T.rmBlobs.children])if(!live.has(b.userData.grp))T.rmBlobs.remove(b);
+   const have=new Set(T.rmBlobs.children.map(b=>b.userData.grp));
+   const inv=new THREE.Matrix4(),m=new THREE.Matrix4(),box=new THREE.Box3(),part=new THREE.Box3();
+   for(const grp of T.items.children){
+    if(have.has(grp))continue;
+    grp.updateMatrixWorld(true);inv.copy(grp.matrixWorld).invert();box.makeEmpty();
+    grp.traverse(o=>{if(!o.isMesh||!o.geometry)return;
+     if(!o.geometry.boundingBox)o.geometry.computeBoundingBox();
+     part.copy(o.geometry.boundingBox).applyMatrix4(m.multiplyMatrices(inv,o.matrixWorld));box.union(part);});
+    if(box.isEmpty())continue;                                   // model still loading
+    const wy=new THREE.Vector3(0,box.min.y,0).applyMatrix4(grp.matrixWorld).y;
+    if(wy>this.m3(60))continue;                                  // wall-mounted
+    const sx=(box.max.x-box.min.x)/0.7,sz=(box.max.z-box.min.z)/0.7;
+    BLOB_GEO=BLOB_GEO||new THREE.PlaneGeometry(1,1);
+    BLOB_MAT=BLOB_MAT||new THREE.MeshBasicMaterial({map:blobTex(),transparent:true,depthWrite:false,toneMapped:false,
+      polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});
+    const blob=new THREE.Mesh(BLOB_GEO,BLOB_MAT);
+    const local=new THREE.Matrix4().compose(
+     new THREE.Vector3((box.min.x+box.max.x)/2,box.min.y+0.002,(box.min.z+box.max.z)/2),
+     new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI/2,0,0)),new THREE.Vector3(sx,sz,1));
+    blob.matrixAutoUpdate=false;blob.frustumCulled=false;blob.renderOrder=1;blob.raycast=()=>{};
+    blob.userData.grp=grp;
+    const none=new THREE.Matrix4().makeScale(0,0,0);
+    blob.onBeforeRender=()=>{
+     // The material is shared, so a hidden piece collapses its own pool instead.
+     if(grp.visible)blob.matrixWorld.multiplyMatrices(grp.matrixWorld,local);
+     else blob.matrixWorld.copy(none);
+    };
+    T.rmBlobs.add(blob);
+   }
+  };
+  {
+   const ORIG_SYNC=P.v3dSync;
+   P.v3dSync=function(...a){
+    const r=ORIG_SYNC.apply(this,a);
+    try{this.rmContactShadows();}catch(e){}
+    return r;
+   };
+  }
+
+  /* Eye level. The overview looks down on the room like a model on a table;
+     standing in it at 1.6 m is how people actually judge a room. The pivot
+     sits a little ahead of the camera, so dragging looks around the room
+     rather than swinging the camera out through a wall. */
+  P.rmEyeLevel=function(){
+   const T=this._v3d;if(!T||!T.camera||typeof THREE==='undefined')return;
+   const R=this.v3dRoomDims(this.space());
+   T.preset='rmEye';T.focusTween=null;T.userMoved=false;
+   T.camera.fov=64;T.camera.zoom=1;T.camera.updateProjectionMatrix();
+   // Stand in a front corner and look across to the far one: two walls and
+   // most of the floor in frame, which is how a room is photographed.
+   const eye=new THREE.Vector3(this.m3(R.w-Math.min(450,R.w*0.12)),this.m3(Math.min(1550,R.h*0.6)),this.m3(R.d-Math.min(450,R.d*0.12)));
+   const look=new THREE.Vector3(this.m3(R.w*0.3),this.m3(Math.min(800,R.h*0.3)),this.m3(R.d*0.25));
+   const dir=look.clone().sub(eye).normalize();
+   T.camera.position.copy(eye);
+   // The pivot sits just in front of the eye, so dragging turns the head in
+   // place. A pivot a metre or more ahead left the room whenever the view
+   // turned towards a near wall, and the room clamp then yanked it back on
+   // every frame, which is what made turning stick.
+   T.controls.target.copy(eye).addScaledVector(dir,0.08);
+   T.controls.minDistance=0.08;T.controls.maxDistance=0.08;
+   if(T.rmOrbitSpeed==null)T.rmOrbitSpeed=T.controls.rotateSpeed;
+   T.controls.rotateSpeed=0.45;
+   T.controls.update();
+   try{this.rmUpdateCutaway();}catch(e){}
+   T.dirty=true;
+  };
+  P.rmToggleEye=function(){
+   if(this.state.rmEye){this.setState({rmEye:false});this.ctResetView();return;}
+   if(this.state.view!=='3d')return;
+   this.setState({rmEye:true});
+   this.rmEyeLevel();
+  };
+  {
+   const ORIG_FIT=P.fitCameraToScene,ORIG_RESET=P.ctResetView;
+   P.fitCameraToScene=function(preset){
+    const T=this._v3d;
+    if(preset==='rmEye'||(!preset&&T&&T.preset==='rmEye'))return this.rmEyeLevel();
+    return ORIG_FIT.call(this,preset);
+   };
+   P.ctResetView=function(...a){
+    if(this.state.rmEye)this.setState({rmEye:false});
+    const T=this._v3d;
+    if(T&&T.rmOrbitSpeed!=null){T.controls.rotateSpeed=T.rmOrbitSpeed;T.rmOrbitSpeed=null;}
+    return ORIG_RESET.apply(this,a);
+   };
+  }
+
  }
 
  /* Room shape. The planner was built around a rectangle, so the footprint
@@ -10469,7 +10673,22 @@ function styleScreen(p){
   const mode=SCREEN_DOCK.includes(RM.step)?'screen':'panel';
   const root=document.documentElement;
   if(root.dataset.rmDock!==mode)root.dataset.rmDock=mode;
-  if(mode==='screen'){dockLast='';return;}      // the corner of the page; nothing to measure
+  if(mode==='screen'){
+   // Same height on every full-screen step: the bottom right of the window.
+   // A step with a footer row ("Selected: …") pins that row to the bottom
+   // too (CSS below), and the button lines up with its right end.
+   const foot=stepRoot&&stepRoot.querySelector('.rm-step-foot');
+   const H=40,gap=18,top=window.innerHeight-H-gap;
+   let right=28;
+   const f=foot&&foot.getBoundingClientRect();
+   if(f&&f.width>40)right=Math.round(window.innerWidth-f.right);
+   const sig='s'+top+'/'+right;
+   if(sig===dockLast)return;
+   dockLast=sig;
+   root.style.setProperty('--rm-dock-top',top+'px');
+   root.style.setProperty('--rm-dock-right',right+'px');
+   return;
+  }
   const r=dockRect();
   if(!r){dockLast='';if(root.dataset.rmDock!=='hidden')root.dataset.rmDock='hidden';return;}
   let bottom=window.innerHeight-r.bottom;
@@ -10568,6 +10787,7 @@ function styleScreen(p){
   };
   P.rmFitVisible=function(margin){
    const T=this._v3d;
+   if(T&&T.preset==='rmEye')return;
    if(!T||typeof THREE==='undefined'||this.state.view!=='3d')return;
    const R=T.room?.userData?.dims;if(!R||!T.renderer)return;
    const box=new THREE.Box3(new THREE.Vector3(0,0,0),
