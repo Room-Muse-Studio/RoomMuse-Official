@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RoomMuse AR</title>
+<style>
+  :root { --ink:#121212; --muted:#6B6862; --line:#E5E2DB; --bg:#FAF8F3; --accent:#C2AF8D; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--ink);
+    font:15px/1.45 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  body { display:flex; flex-direction:column; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px;
+    padding:14px 16px; border-bottom:1px solid var(--line); background:#fff; }
+  header b { font-weight:600; font-size:17px; letter-spacing:-.01em; }
+  header span { color:var(--muted); font-size:13px; }
+  .info { padding:14px 16px 0; }
+  .info h1 { margin:0; font-size:20px; font-weight:600; letter-spacing:-.01em; }
+  .info p { margin:4px 0 0; color:var(--muted); font-size:13px; }
+  model-viewer { flex:1; width:100%; min-height:320px; background:var(--bg); --poster-color:transparent; }
+  .ar-btn { position:absolute; left:50%; bottom:max(20px, env(safe-area-inset-bottom)); transform:translateX(-50%);
+    border:0; border-radius:999px; background:var(--ink); color:#fff; font:600 15px/1 inherit;
+    padding:15px 26px; box-shadow:0 6px 20px rgba(18,18,18,.18); cursor:pointer; white-space:nowrap; }
+  .bar { position:absolute; left:16px; right:16px; top:12px; height:3px; border-radius:3px; background:var(--line); overflow:hidden; }
+  .bar i { display:block; height:100%; width:0; background:var(--accent); transition:width .2s; }
+  .note { position:absolute; left:16px; right:16px; bottom:max(20px, env(safe-area-inset-bottom)); text-align:center;
+    color:var(--muted); font-size:13px; background:rgba(255,255,255,.9); border:1px solid var(--line);
+    border-radius:12px; padding:12px 14px; display:none; }
+  .missing { padding:40px 16px; text-align:center; color:var(--muted); }
+</style>
+<script>
+  // Use the same meshopt decoder as the configurator instead of a CDN copy.
+  self.ModelViewerElement = { meshoptDecoderLocation: 'meshy/meshopt_decoder-r147.js' };
+</script>
+<script type="module" src="meshy/model-viewer-3.5.0.min.js"></script>
+<script src="meshy/meshy-catalog-v1.js"></script>
+</head>
+<body>
+<header><b>RoomMuse</b><span>View in your room</span></header>
+<div class="info"><h1 id="name">Loading…</h1><p id="dims"></p></div>
+<script>
+  const id = new URLSearchParams(location.search).get('m');
+  const p = (window.MESHY_PRODUCTS || []).find(x => x.model3d === id);
+  if (!p) {
+    document.getElementById('name').textContent = 'Model not found';
+    document.body.insertAdjacentHTML('beforeend', '<p class="missing">This link does not point to a RoomMuse model.</p>');
+  } else {
+    document.title = p.nameEn + ' · RoomMuse AR';
+    document.getElementById('name').textContent = p.nameEn;
+    document.getElementById('dims').textContent = 'W ' + p.w + ' × D ' + p.d + ' × H ' + p.h + ' mm · shown at real size';
+    // Files carry real-world scale, so ar-scale="fixed" stands the piece at its true size.
+    document.body.insertAdjacentHTML('beforeend',
+      '<model-viewer src="meshy/' + p.model3d + '.glb" alt="' + p.nameEn.replace(/"/g, '&quot;') + '"' +
+      ' ar ar-modes="webxr scene-viewer quick-look" ar-scale="fixed" ar-placement="floor"' +
+      ' camera-controls touch-action="pan-y" shadow-intensity="1" environment-image="neutral" loading="eager">' +
+      '<div class="bar" slot="progress-bar"><i></i></div>' +
+      '<button class="ar-btn" slot="ar-button">View in your room</button>' +
+      '<div class="note" id="no-ar">AR opens on a phone or tablet. Scan the code in the configurator with your phone, or open this link there.</div>' +
+      '</model-viewer>');
+    const mv = document.querySelector('model-viewer');
+    mv.addEventListener('progress', e => { mv.querySelector('.bar i').style.width = (e.detail.totalProgress * 100) + '%';
+      if (e.detail.totalProgress === 1) mv.querySelector('.bar').style.display = 'none'; });
+    mv.addEventListener('load', () => { if (!mv.canActivateAR) document.getElementById('no-ar').style.display = 'block'; });
+  }
+</script>
+</body>
+</html>

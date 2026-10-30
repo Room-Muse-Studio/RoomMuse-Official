@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RoomMuse</title>
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
+  <style>
+    #rm-splash { position: fixed; inset: 0; z-index: 2147483647; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: #FAF8F3; transition: opacity .2s ease; }
+    #rm-splash img { width: 46px; height: 46px; display: block; }
+    #rm-splash b { font: 600 20px/1 Inter, -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: -0.01em; color: #121212; }
+    #rm-splash i { display: block; width: 168px; height: 2px; border-radius: 2px; background: #E5E2DB; overflow: hidden; }
+    #rm-splash i::after { content: ''; display: block; width: 40%; height: 100%; border-radius: 2px; background: #C2AF8D; animation: rm-load 1.1s ease-in-out infinite; }
+    #rm-splash p { position: fixed; bottom: 22px; left: 0; right: 0; margin: 0; text-align: center; font: 12px/1.4 Inter, -apple-system, BlinkMacSystemFont, sans-serif; color: #B9B2A8; }
+    #rm-splash p.rm-splash-error { color: #C0392B; }
+    @keyframes rm-load { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
+    @media (prefers-reduced-motion: reduce) { #rm-splash i::after { animation: none; width: 100%; } }
+  </style>
+</head>
+<body>
+  <div id="rm-splash">
+    <img src="/logo.svg" alt="">
+    <b>RoomMuse</b>
+    <i></i>
+    <p>Loading…</p>
+  </div>
+  <noscript>This page requires JavaScript to display.</noscript>
+  <script src="/boot.js"></script>
+</body>
+</html>
