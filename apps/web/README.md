@@ -20,7 +20,7 @@ prototype after the fork are not brought over automatically — merge them by ha
 | `roommuse/scan-room.js` | **Ours.** A scan from the phone → the editor's room (outline, doors, windows, sockets). Tested in `test/scan-room.test.js` |
 | `vendor/` | The Design Component runtime (`dc-runtime.js`, generated, don't edit) and React 18 |
 | `assets/` | Images, fonts and catalogue data, named by the bundle's ids. `213ea483…js` = `CATALOGUE_SG`, `7c8a1d2e…js` = `WG_CHAIR`, `524e990d…js` = `SG_RENDER` |
-| `meshy/` | The Meshy AI furniture: one `.glb` and preview `.webp` per model, `meshy-catalog-v1.js`, the GLTF and meshopt loaders, QR code |
+| `meshy/` | The Meshy AI furniture: one `.glb` and preview `.webp` per model, `meshy-catalog-v2.js` (prices from wiseglobe.net), the GLTF and meshopt loaders, QR code |
 | `ar.html` | View in AR for one Meshy model (`/ar?m=meshy-03`), opened from a product card's QR code |
 | `logo.svg` | The RoomMuse mark |
 
