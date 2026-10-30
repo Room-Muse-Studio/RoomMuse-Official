@@ -5,3 +5,6 @@ public
 test
 .github
 .env*
+# local notes (git-ignored through .git/info/exclude)
+CLAUDE.md
+.claude
