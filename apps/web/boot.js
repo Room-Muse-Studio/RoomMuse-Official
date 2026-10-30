@@ -5,8 +5,9 @@
  * (app/planner.js) are read by vendor/dc-runtime.js from an <x-dc> element and
  * a <script type="text/x-dc"> in the page, both inline. They are kept as files
  * so they can be edited, and placed into the page here before the runtime
- * loads. The catalogue scripts run first, in order, because the planner reads
- * their globals while it starts.
+ * loads. The catalogue scripts, the scan SDK and the account/project connector
+ * (roommuse/) run first, in order, because the planner reads their globals
+ * while it starts.
  */
 (function () {
   'use strict';
@@ -24,6 +25,9 @@
     '/assets/524e990d-268f-4ebc-b34d-cbca8efd2abb.js', // SG_RENDER
     '/meshy/meshy-catalog-v1.js',
     '/meshy/qrcode-1.4.4.js',
+    '/packages/scan-sdk/dist/mozu-scan-sdk.global.js',
+    '/roommuse/scan-room.js',
+    '/roommuse/backend.js',
   ];
   const PROPS = '{"$preview":{"width":1600,"height":1000}}';
 

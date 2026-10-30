@@ -5,6 +5,28 @@ session logs, so they're accurate to within a few minutes; one entry notes where
 
 ---
 
+## 2026-10-30
+
+### 13:56 — The WiseGlobe configurator replaces the Next.js configurator as the site
+- `apps/web/` (new): a one-time fork of RoomMuseStudio's WiseGlobe configurator prototype (`0c2aa05`), its bundled
+  page split into editable files (`boot.js`, `app/view.html`, `app/planner.js`, `assets/`, `meshy/`, `vendor/`).
+  First commit is the prototype unchanged; see `apps/web/README.md`.
+- The prototype's sign-in (one hard-coded admin) and browser-only projects are replaced by the server's:
+  Firebase sign-in → session cookie (create account, reset password, Google, verification reminder), projects
+  in `/api/projects` saved 0.8 s after each change with conflict detection, rename from the header, delete with
+  confirmation, `?project=ID` in the address (`apps/web/roommuse/backend.js`, the shell in `app/planner.js`).
+- Room Scanning now uses the phone's 6-character code (or a sample, a scan file, or the phone's link) instead of
+  a placeholder QR and a stand-in room. The scan keeps its exact outline as a new `'scan'` room shape, with its
+  doors, windows and sockets on the right walls; a home scan asks which room to furnish
+  (`apps/web/roommuse/scan-room.js`, 5 tests).
+- Server: `POST /api/projects { method: 'manual' | 'floorplan' }` makes a project with no scan; a design is now
+  `{ version: 4, project }` (the editor's record); a save may carry a ≤ 2 KB `summary` kept in the project's meta
+  for the list (`server/project-api.js`, `server/app-store.js`, tests updated and added).
+- `apps/configurator/` (Next.js), its 30 MOZU GLB models and its tests are removed; `scripts/build-web.js` copies
+  `apps/web` and the samples into `public/`. CI checks the build and that the app's scripts parse.
+
+---
+
 ## 2026-09-30
 
 ### 02:02 — Designs saved to Redis, kept for good, editable by anyone with the code

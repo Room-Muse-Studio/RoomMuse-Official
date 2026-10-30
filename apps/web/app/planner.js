@@ -8000,35 +8000,30 @@ window.MOZU_INTERNAL_FITTINGS={"sourceFile":"标准柜_新加坡币SGD_20260908.
   for(const md of APPLIANCE_HOSTS[tp].models)(MODEL_APPLIANCES[md]=MODEL_APPLIANCES[md]||[]).push(tp);
 
 
- /* ── Store ───────────────────────────────────────────────── */
- const KEY='roommuse.prototype.v1';
- const ADMIN={email:'admin@roommuse.studio',password:'roommuse2026'};
- // Projects shipped with the build. Saved state lives in localStorage, which is
- // per browser and per origin, so a fresh deployment would otherwise open on an
- // empty workspace. patch2.py substitutes seed.json here when one is present.
- const SEED_PROJECTS=/*@SEED@*/[]/*@SEED_END@*/;
- const RM={saveVer:0,view:'login',user:null,projects:[],activeId:null,app:null,step:'room',modal:null,draft:null,selApp:null};
+ /* ── Store ───────────────────────────────────────────────────
+    Accounts and projects live on the server (roommuse/backend.js).
+    RM.projects holds one record per project: from the project list, a
+    stub built from the project's meta and summary (_stub); once opened,
+    the whole record, which is what gets saved. Fields that start with _
+    are this page's bookkeeping and are never saved: _rev (the server's
+    revision), _scan (the project's scan), _dirty, _conflict. ── */
+ const BE=window.RoomMuseBackend,SCAN=window.RoomMuseScanRoom;
+ const RM={saveVer:0,view:'loading',user:null,projects:[],activeId:null,app:null,step:'room',modal:null,draft:null,selApp:null,
+   authMode:'signin',busy:'',formError:'',homeError:'',notice:''};
 
  const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const uid=()=>'p'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
- const load=()=>{
-  try{
-   const raw=window.localStorage?.getItem(KEY);
-   if(raw){
-    const d=JSON.parse(raw);RM.user=d.user||null;RM.projects=Array.isArray(d.projects)?d.projects:[];
-    for(const p of RM.projects)migrate(p);
-    return;
-   }
-  }catch(e){}
-  // Nothing saved in this browser yet: start from the projects in the build.
-  try{
-   if(Array.isArray(SEED_PROJECTS)&&SEED_PROJECTS.length){
-    RM.projects=JSON.parse(JSON.stringify(SEED_PROJECTS));
-    for(const p of RM.projects)migrate(p);
-    save();
-   }
-  }catch(e){}
+ // How the room was captured, for projects whose record has not been saved yet.
+ const METHOD_OF_SOURCE={code:'scan',file:'scan',sample:'scan',manual:'manual',floorplan:'floorplan'};
+ const stubFrom=meta=>{
+  const s=meta.summary||{};
+  return {id:meta.id,name:meta.name,client:s.client||'',method:s.method||METHOD_OF_SOURCE[meta.source]||'manual',
+   roomName:s.roomName||'',roomType:s.roomType||'',done:Array.isArray(s.done)?s.done:[],
+   createdAt:meta.createdAt,updatedAt:meta.updatedAt,_rev:meta.rev,_stub:true};
  };
+ const persisted=p=>{const out={};for(const k of Object.keys(p))if(k[0]!=='_')out[k]=p[k];return out;};
+ // What the project list shows; saved alongside the record.
+ const summaryOf=p=>({client:p.client||'',method:p.method,roomName:p.roomName||'',roomType:p.roomType||'',done:(p.done||[]).slice(0,30)});
  // Projects stored before the capture-method rules existed carry no source.
  const migrate=p=>{
   if(!Array.isArray(p.openings))p.openings=[];
@@ -8039,7 +8034,60 @@ window.MOZU_INTERNAL_FITTINGS={"sourceFile":"标准柜_新加坡币SGD_20260908.
   p.openingsSeeded=true;p.utilitiesSeeded=true;
   return p;
  };
- const save=()=>{RM.saveVer=(RM.saveVer||0)+1;try{window.localStorage?.setItem(KEY,JSON.stringify({user:RM.user,projects:RM.projects}));}catch(e){}};
+ // Every change ends in save(): the open project is written to the server a
+ // moment later, one request at a time, each with the revision it was loaded
+ // at. A 409 means another tab or device saved since; stop rather than
+ // overwrite it.
+ const SAVE_DELAY=800,RETRY_DELAY=5000;
+ let saveTimer=0,writing=null;
+ const save=()=>{
+  RM.saveVer=(RM.saveVer||0)+1;
+  const p=project();
+  if(!p||p._stub||!p._rev||p._conflict)return;
+  p._dirty=true;
+  clearTimeout(saveTimer);saveTimer=setTimeout(flushSaves,SAVE_DELAY);
+ };
+ function flushSaves(opts){
+  clearTimeout(saveTimer);saveTimer=0;
+  if(writing)return writing.then(()=>flushSaves(opts));
+  const p=RM.projects.find(x=>x._dirty&&!x._conflict);
+  if(!p)return Promise.resolve();
+  p._dirty=false;
+  writing=BE.projects.save(p.id,p._rev,persisted(p),summaryOf(p),opts).then(r=>{
+   p._rev=r.rev;p.updatedAt=r.updatedAt;setSaveError('');return true;
+  },e=>{
+   if(e.status===409){
+    p._conflict=true;
+    setSaveError('This project was changed in another tab or on another device, so changes made here are no longer being saved. Reload the page to continue with the latest version.');
+   }else{
+    p._dirty=true;
+    setSaveError(BE.friendly(e)+' Your latest changes are not saved yet — retrying.');
+    saveTimer=setTimeout(flushSaves,RETRY_DELAY);
+   }
+   return false;
+  }).finally(()=>{writing=null;});
+  return writing.then(ok=>ok?flushSaves(opts):undefined);
+ }
+ const unsaved=()=>!!saveTimer||!!writing||RM.projects.some(x=>x._dirty&&!x._conflict);
+ function setSaveError(msg){
+  let el=document.getElementById('rm-save-error');
+  if(!msg){if(el)el.remove();return;}
+  if(!el){
+   el=document.createElement('div');el.id='rm-save-error';el.setAttribute('role','alert');
+   el.style.cssText='position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:9800;max-width:560px;padding:11px 16px;'+
+    'border-radius:8px;background:#FBEDE9;color:#8C3A22;border:1px solid #EBC9BE;font:12.5px/1.5 Inter,-apple-system,sans-serif;box-shadow:0 6px 20px rgba(18,18,18,.10)';
+   document.body.appendChild(el);
+  }
+  el.textContent=msg;
+ }
+ // Leaving with a save still pending: send it on its way, and ask the browser
+ // to confirm when it may not make it.
+ window.addEventListener('beforeunload',e=>{
+  flushPlanner();
+  if(!unsaved())return;
+  flushSaves({keepalive:true});
+  e.preventDefault();e.returnValue='';
+ });
  // The planner's cabinets belong to the project, not to one global slot, so a
  // reopened project comes back with the modules that were placed in it.
  let plannerTimer=0;
@@ -8052,7 +8100,7 @@ window.MOZU_INTERNAL_FITTINGS={"sourceFile":"标准柜_新加坡币SGD_20260908.
   const p=project(),app=RM.app;
   if(!p||!app||RM.view!=='app')return;
   const snap=plannerSnapshot(app);
-  if(snap){p.planner=snap;p.updatedAt=Date.now();save();}
+  if(snap&&JSON.stringify(snap)!==JSON.stringify(p.planner)){p.planner=snap;p.updatedAt=Date.now();save();}
  };
  const schedulePlanner=()=>{
   if(RM.view!=='app'||!project())return;
@@ -8198,8 +8246,11 @@ const blankProject=()=>({id:uid(),name:'',client:'',scenario:'living',rooms:['li
   if(hit){this.setState({activeSpace:hit.id,tab:'kitchen',selected:null,selTop:null});}
   else{
    const base=sps[0]||this.space(),id='sp'+(++this.uid);
+   // A scanned room keeps its outline; a floor-plan room its measured size.
+   const room=p&&Array.isArray(p.roomPoly)?{roomShape:'scan',roomPoly:p.roomPoly.map(q=>q.slice()),roomW:w,roomD:d}
+     :(p&&p.roomD?{roomW:w,roomD:d}:{});
    sps=[{id,countertopHeight:this.countertopHeight(),name:nm,type:nm,room:'kitchen',rmRoom:'main',
-     wallW:w,wallH:2700,depth:600,finish:base.finish,hw:base.hw,install:true,delivery:true,extras:{},items:[],tops:[]}];
+     wallW:w,wallH:(p&&p.roomH)||2700,depth:600,finish:base.finish,hw:base.hw,install:true,delivery:true,extras:{},items:[],tops:[],...room}];
    this.commit(sps,{activeSpace:id,step:'products',tab:'kitchen',selected:null,selTop:null,roomSelected:false});
   }
   const list=flatSteps();
@@ -8247,7 +8298,8 @@ const blankProject=()=>({id:uid(),name:'',client:'',scenario:'living',rooms:['li
   if(RM.view==='app'){root.dataset.open='false';root.innerHTML='';paintStep();return;}
   hideStep();
   root.dataset.open='true';
-  root.innerHTML=(RM.view==='login'?loginScreen():RM.view==='home'?homeScreen():RM.view==='new'?newScreen():RM.view==='scan'?scanScreen():RM.view==='plan'?planPickScreen():'')+(RM.modal||'');
+  const screens={loading:loadingScreen,login:loginScreen,home:homeScreen,new:newScreen,scan:scanScreen,plan:planPickScreen,scanpick:scanPickScreen};
+  root.innerHTML=(screens[RM.view]?screens[RM.view]():'')+(RM.modal||'');
   root.scrollTop=0;
  }
  P.rmPaint=paint;
@@ -8255,18 +8307,36 @@ const blankProject=()=>({id:uid(),name:'',client:'',scenario:'living',rooms:['li
  /* ── Screens ─────────────────────────────────────────────── */
  const brand=size=>'<div class="rm-brand">'+LOGO+'<b>RoomMuse</b></div>';
  const topbar=()=>'<div class="rm-topbar">'+brand()+'<div class="rm-spacer"></div>'+
-   '<div class="rm-user"><span class="rm-avatar">'+esc((RM.user?.name||'A').slice(0,1).toUpperCase())+'</span>'+esc(RM.user?.email||'')+
+   '<div class="rm-user"><span class="rm-avatar">'+esc((RM.user?.name||RM.user?.email||'?').slice(0,1).toUpperCase())+'</span>'+esc(RM.user?.email||'')+
    '</div><button class="rm-btn rm-btn--ghost rm-btn--sm" data-rm="logout">Sign out</button></div>';
+ const errorBox=msg=>msg?'<div class="rm-error" role="alert">'+esc(msg)+'</div>':'';
+ const noticeBox=msg=>msg?'<div class="rm-demo-note" role="status" style="margin:0 0 16px">'+esc(msg)+'</div>':'';
+ const busyAttr=()=>RM.busy?' disabled':'';
 
- function loginScreen(){
+ function loadingScreen(){
   return '<div class="rm-login"><div class="rm-login-card">'+brand()+
-   '<h1>Sign in to RoomMuse</h1><p class="rm-sub">Design your kitchen or wardrobe, see live pricing, and hand a complete brief to a RoomMuse designer.</p>'+
-   (RM.loginError?'<div class="rm-error">'+esc(RM.loginError)+'</div>':'')+
+   '<p class="rm-sub" style="margin-bottom:0">'+esc(RM.busy||'Loading…')+'</p></div></div>';
+ }
+
+ // Accounts are Firebase sign-in (email + password, or Google) behind our
+ // own session; see roommuse/backend.js.
+ function loginScreen(){
+  const mode=RM.authMode,create=mode==='create',reset=mode==='reset';
+  const title=create?'Create your RoomMuse account':reset?'Reset your password':'Sign in to RoomMuse';
+  const sub=reset?'Enter your email and we will send you a link to choose a new password.'
+   :'Design your kitchen or wardrobe, see live pricing, and hand a complete brief to a RoomMuse designer.';
+  const link=(id,text)=>'<button type="button" class="rm-btn rm-btn--ghost rm-btn--sm" data-rm="auth-mode" data-id="'+id+'">'+text+'</button>';
+  return '<div class="rm-login"><div class="rm-login-card">'+brand()+
+   '<h1>'+title+'</h1><p class="rm-sub">'+sub+'</p>'+
+   (RM.pendingLink&&RM.pendingLink.kind!=='project'?noticeBox('Sign in to bring your room scan into a project.'):'')+
+   errorBox(RM.loginError)+noticeBox(RM.notice)+
    '<form><label class="rm-field"><span>Email</span><input type="email" data-field="email" value="'+esc(RM.loginEmail||'')+'" placeholder="you@example.com" autocomplete="username"></label>'+
-   '<label class="rm-field"><span>Password</span><input type="password" data-field="password" value="'+esc(RM.loginPassword||'')+'" placeholder="••••••••" autocomplete="current-password"></label>'+
-   '<button class="rm-btn rm-btn--primary rm-btn--block" data-rm="signin">Sign in</button></form>'+
-   '<div class="rm-demo-note">Prototype sign-in — nothing leaves this browser. Admin account: <b>'+ADMIN.email+'</b> / <b>'+ADMIN.password+'</b></div>'+
-   '</div></div>';
+   (reset?'':'<label class="rm-field"><span>Password</span><input type="password" data-field="password" value="'+esc(RM.loginPassword||'')+'" placeholder="'+(create?'At least 8 characters':'••••••••')+'" autocomplete="'+(create?'new-password':'current-password')+'"></label>')+
+   '<button class="rm-btn rm-btn--primary rm-btn--block" data-rm="signin"'+busyAttr()+'>'+(RM.busy?esc(RM.busy):create?'Create account':reset?'Send reset link':'Sign in')+'</button></form>'+
+   (reset?'':'<button class="rm-btn rm-btn--block" data-rm="google" style="margin-top:10px"'+busyAttr()+'>Continue with Google</button>')+
+   '<div class="rm-row" style="justify-content:center;margin-top:14px;gap:4px">'+
+   (mode==='signin'?link('create','Create an account')+link('reset','Forgot password?'):link('signin','Back to sign in'))+
+   '</div></div></div>';
  }
 
  function homeScreen(){
@@ -8284,7 +8354,11 @@ const blankProject=()=>({id:uid(),name:'',client:'',scenario:'living',rooms:['li
     '<span class="rm-project-del" data-rm="delete" data-id="'+p.id+'" title="Delete project"><span class="ic">delete</span></span>'+
     '</button>';
   }).join('');
-  return topbar()+'<div class="rm-wrap">'+
+  const verify=RM.user&&!RM.user.emailVerified&&(RM.user.providers||[]).includes('password')
+   ?'<div class="rm-demo-note rm-row" style="margin:0 0 20px;justify-content:space-between">'+
+    '<span>Please verify your email address — we sent a link to <b>'+esc(RM.user.email)+'</b>.</span>'+
+    '<button class="rm-btn rm-btn--sm" data-rm="resend-verify"'+busyAttr()+'>Resend email</button></div>':'';
+  return topbar()+'<div class="rm-wrap">'+verify+errorBox(RM.homeError)+noticeBox(RM.notice)+
    '<div class="rm-spread"><div><div class="rm-eyebrow">Your workspace</div><h1 class="rm-h1">Design projects</h1>'+
    '<p class="rm-sub" style="margin-bottom:0">Every project keeps its own space input, style direction and estimate. Pick up where you left off, or start a new one.</p></div>'+
    '<button class="rm-btn rm-btn--primary" data-rm="new">+ New Design Project</button></div>'+
@@ -8303,6 +8377,7 @@ const blankProject=()=>({id:uid(),name:'',client:'',scenario:'living',rooms:['li
    '<button class="rm-btn rm-btn--ghost rm-btn--sm" data-rm="home" style="margin-bottom:18px">← All projects</button>'+
    '<div class="rm-eyebrow">New project</div><h1 class="rm-h1">Create a design project</h1>'+
    '<p class="rm-sub">Name the project and pick how you want to capture the room. Every project covers one room — you can fine-tune all values afterwards.</p>'+
+   noticeBox(RM.notice)+
    '<div class="rm-card" style="margin-bottom:18px">'+
    '<div>'+
    '<label class="rm-field" style="max-width:420px"><span>Project name</span><input data-field="name" value="'+esc(d.name)+'" placeholder="e.g. Living Room — Maple Street"></label>'+
@@ -8312,13 +8387,14 @@ const blankProject=()=>({id:uid(),name:'',client:'',scenario:'living',rooms:['li
    '<h2 class="rm-h2">How would you like to capture the space?</h2>'+
    '<p class="rm-sub" style="margin-bottom:16px">All three give you one room to furnish — they differ only in where the measurements come from.</p>'+
    '<div class="rm-options rm-options--3">'+
-   method('scan','Room Scanning','Mobile only','Walk the room with your phone — walls, doors and windows are mapped automatically.','Target accuracy ±2 mm. A QR code appears on the next screen.')+
+   method('scan','Room Scanning','Mobile only','Walk the room with your phone — walls, doors and windows are mapped automatically.','Needs a LiDAR iPhone or iPad. You enter the code it shows on the next screen.')+
    method('manual','Manual Input','','Enter the room shape and dimensions yourself, then place doors and windows on the plan.','Preferred when you already know the measurements.')+
    method('floorplan','Upload Floor Plan','','Upload a plan — we read the dimensions and detect the rooms on it. You then pick the one room to furnish in this project.','OCR and opening detection need feasibility review; manual fallback available.')+
    '</div>'+
    '<p class="rm-note" style="margin-top:14px">All three methods support fine-tuning afterwards. Room Scanning and Floor Plan also pre-populate door &amp; window positions.</p>'+
+   '<div style="margin-top:16px">'+errorBox(RM.formError)+'</div>'+
    '<div class="rm-step-foot"><button class="rm-btn rm-btn--ghost" data-rm="home">Cancel</button>'+
-   '<button class="rm-btn rm-btn--primary" data-rm="create"'+((d.name.trim()&&!nameTaken(d))?'':' disabled')+'>Create project →</button></div>'+
+   '<button class="rm-btn rm-btn--primary" data-rm="create"'+((d.name.trim()&&!nameTaken(d)&&!RM.busy)?'':' disabled')+'>'+(RM.busy?esc(RM.busy):'Create project →')+'</button></div>'+
    '</div>';
  }
 
@@ -8355,26 +8431,58 @@ const blankProject=()=>({id:uid(),name:'',client:'',scenario:'living',rooms:['li
    '<p class="rm-sub">We found '+DETECTED_PLAN_ROOMS.length+' rooms on your plan. Pick the one to furnish in this project — each project covers a single room.</p>'+
    '<div class="rm-options rm-options--3">'+cards+'</div>'+
    '<p class="rm-note" style="margin-top:16px;max-width:60ch">The other rooms stay on this plan. When you are ready to furnish one of them, start a new project and pick it here — you will not need to upload the plan again.</p>'+
+   '<div style="margin-top:16px">'+errorBox(RM.formError)+'</div>'+
    '<div class="rm-step-foot"><button class="rm-btn rm-btn--ghost" data-rm="home">Cancel</button>'+
-   '<button class="rm-btn rm-btn--primary" data-rm="plan-go"'+(d.roomId?'':' disabled')+'>Continue →</button></div>'+
+   '<button class="rm-btn rm-btn--primary" data-rm="plan-go"'+(d.roomId&&!RM.busy?'':' disabled')+'>'+(RM.busy?esc(RM.busy):'Continue →')+'</button></div>'+
    '</div>';
  }
 
+ // The phone scans the room and uploads it; the 6-character code it shows
+ // brings that scan into a new project here (codes last 24 hours). A scan
+ // file or a sample room works the same way, for anyone without a LiDAR
+ // device.
  function scanScreen(){
+  const d=RM.draft||{};
+  const fromLink=!!d._linkScan;
+  const samples=BE.SAMPLES.map(s=>'<button class="rm-btn rm-btn--sm" data-rm="scan-sample" data-id="'+esc(s.id)+'" title="'+esc(s.note)+'"'+busyAttr()+'>'+esc(s.name)+'</button>').join('');
   return topbar()+'<div class="rm-wrap">'+
    '<button class="rm-btn rm-btn--ghost rm-btn--sm" data-rm="back-new" style="margin-bottom:18px">← Back</button>'+
-   '<div class="rm-eyebrow">Phase 1 · Space Input</div><h1 class="rm-h1">Scan this code with your iPhone</h1>'+
-   '<p class="rm-sub">Open the RoomMuse companion app, tap “Start Scan”, and point your iPhone camera at the code. The scan maps walls, doors and windows and streams the result back to this screen.</p>'+
-   '<div class="rm-qr-layout"><div>'+
-   '<ol class="rm-steps-list">'+
-   '<li>Open the RoomMuse app on your iPhone</li><li>Tap “Start Scan” on the home screen</li>'+
-   '<li>Point your iPhone camera at this QR code</li><li>Walk around the room — the app maps walls, doors &amp; windows</li>'+
-   '<li>Tap “Done” — results auto-fill on this screen</li></ol>'+
-   '<div class="rm-status-pill"><i></i>Waiting for phone to connect…</div>'+
-   '<p class="rm-note" style="margin-top:22px;max-width:52ch">Prototype note: the phone-side scanning engine is not wired up yet. Continue below to load the standard room model and carry on with the flow — the scan hand-off will replace this step once the engine is connected.</p>'+
-   '<div style="margin-top:20px"><button class="rm-btn rm-btn--primary" data-rm="scan-done">Continue with sample room model →</button></div>'+
-   '</div><div><div class="rm-qr">'+qrSvg()+'</div>'+
-   '<p class="rm-note" style="margin-top:12px;text-align:center">QR expires after single use — refreshes automatically if unused for 5 min.</p></div></div>'+
+   '<div class="rm-eyebrow">Phase 1 · Space Input</div>'+
+   (fromLink
+    ?'<h1 class="rm-h1">Your scan has arrived</h1>'+
+     '<p class="rm-sub">The room you scanned on your phone came with the link you opened. Continue to bring it into “'+esc(d.name)+'”.</p>'+
+     errorBox(RM.formError)+
+     '<div><button class="rm-btn rm-btn--primary" data-rm="scan-link"'+busyAttr()+'>'+(RM.busy?esc(RM.busy):'Use this scan →')+'</button></div>'
+    :'<h1 class="rm-h1">Enter the code from your iPhone</h1>'+
+     '<p class="rm-sub">Scan the room with the RoomMuse Scanner app. When you finish, it uploads the scan and shows a 6-character code — enter it here.</p>'+
+     '<div class="rm-qr-layout"><div>'+
+     '<ol class="rm-steps-list">'+
+     '<li>Open the RoomMuse Scanner app on a LiDAR iPhone or iPad</li><li>Tap “Start Scan” and walk around the room</li>'+
+     '<li>The app maps walls, doors, windows &amp; sockets</li><li>Tap “Done” — the app shows a 6-character code</li>'+
+     '<li>Enter the code here (it lasts 24 hours)</li></ol>'+
+     '</div><div class="rm-card">'+
+     errorBox(RM.formError)+
+     '<form><label class="rm-field"><span>Scan code</span><input data-field="code" value="'+esc(d.code||'')+'" placeholder="e.g. B7K4M2" maxlength="7" autocomplete="off" autocapitalize="characters" spellcheck="false" style="font-size:20px;letter-spacing:.18em;text-transform:uppercase"></label>'+
+     '<button class="rm-btn rm-btn--primary rm-btn--block" data-rm="scan-code"'+busyAttr()+'>'+(RM.busy?esc(RM.busy):'Bring in my scan →')+'</button></form>'+
+     '<p class="rm-note" style="margin:22px 0 8px">No LiDAR device to hand? Start from a sample room, or open a scan file (.json).</p>'+
+     '<div class="rm-row" style="gap:8px">'+samples+
+     '<label class="rm-btn rm-btn--sm" style="cursor:pointer">Open scan file…<input type="file" accept=".json,application/json" data-rm="scan-file" hidden'+busyAttr()+'></label></div>'+
+     '</div></div>')+
+   '</div>';
+ }
+
+ // A home scan has several rooms; each project furnishes one of them.
+ function scanPickScreen(){
+  const p=project(),rooms=(p&&p._pickRooms)||[];
+  const cards=rooms.map(r=>'<button class="rm-option" aria-pressed="false" data-rm="scan-room" data-id="'+esc(r.key)+'">'+
+    '<span class="rm-check">✓</span><strong>'+esc(r.name)+'</strong>'+
+    '<span>'+r.w.toLocaleString('en-US')+' × '+r.d.toLocaleString('en-US')+' mm · '+r.poly.length+' walls</span></button>').join('');
+  return topbar()+'<div class="rm-wrap">'+
+   '<div class="rm-eyebrow">Phase 1 · Space Input</div><h1 class="rm-h1">Which room do you want to furnish?</h1>'+
+   '<p class="rm-sub">Your scan has '+rooms.length+' rooms. Pick the one to furnish in “'+esc(p&&p.name)+'” — each project covers a single room.</p>'+
+   '<div class="rm-options rm-options--3">'+cards+'</div>'+
+   '<p class="rm-note" style="margin-top:16px;max-width:60ch">To furnish another room from the same scan later, start a new project with the same code (within 24 hours) or the same scan file.</p>'+
+   '<div class="rm-step-foot"><button class="rm-btn rm-btn--ghost" data-rm="home">Back to projects</button></div>'+
    '</div>';
  }
 
@@ -8792,7 +8900,7 @@ function styleScreen(p){
     '<input type="number" step="10" data-rm="roomdim" data-k="'+k+'" value="'+Math.round(val)+'"></label>';
   // The recess is what turns a bounding box into an L, a T or a cut corner,
   // so it only has anything to say once one of those is chosen.
-  const recess=shape==='rect'?'':
+  const recess=shape==='rect'||shape==='scan'?'':
    '<div class="rm-item-fields" style="margin-top:10px">'+
    dim('nw',shape==='cut'?'Cut width mm':'Recess width mm',(+sp.roomNW||Math.round(R.w*0.4)))+
    dim('nd',shape==='cut'?'Cut depth mm':'Recess depth mm',(+sp.roomND||Math.round(R.d*0.4)))+
@@ -8961,9 +9069,18 @@ function styleScreen(p){
     const note=nameNote(RM.draft),el=root.querySelector('[data-rm-namenote]');
     if(el){el.textContent=note.text;el.style.color=note.bad?'#C0392B':'';}
     const btn=root.querySelector('[data-rm="create"]');
-    if(btn)btn.disabled=!RM.draft.name.trim()||note.bad;return;}
+    if(btn)btn.disabled=!RM.draft.name.trim()||note.bad||!!RM.busy;return;}
+   if(RM.view==='scan'&&RM.draft){RM.draft[t.dataset.field]=t.value;return;}
   }
   const a=t.dataset.rm;
+  if(a==='scan-file'&&e.type==='change'&&t.files&&t.files[0]){
+   const file=t.files[0];t.value='';
+   file.text().then(text=>{
+    let scan;
+    try{scan=JSON.parse(text);}catch(err){RM.formError='That file is not a scan (it is not JSON).';paint();return;}
+    createFromScan({scan,source:'file'});
+   },()=>{RM.formError='Could not read that file.';paint();});
+   return;}
 
   if(a==='surfrgb'&&p){
    const box=t.closest('[data-rm-rgb]');if(!box)return;
@@ -9004,25 +9121,173 @@ function styleScreen(p){
    return;}
  }
 
+ /* ── Accounts and projects on the server ─────────────────── */
+ // Run one server action with the screen's buttons disabled; errors land in
+ // `where` (an RM field shown by the current screen).
+ async function busy(label,where,fn){
+  if(RM.busy)return;
+  RM.busy=label;RM[where]='';RM.notice='';paint();
+  try{await fn();}
+  catch(e){RM[where]=BE.friendly(e);}
+  finally{RM.busy='';if(RM.view!=='app')paint();}
+ }
+ const waitForPlanner=async()=>{for(let i=0;i<200&&!RM.app;i++)await new Promise(r=>setTimeout(r,50));};
+
+ async function start(){
+  RM.view='loading';RM.busy='Loading…';paint();
+  RM.pendingLink=BE.linkRequest();
+  try{RM.user=await BE.auth.me();}
+  catch(e){RM.loginError=BE.friendly(e);}
+  RM.busy='';
+  if(!RM.user){RM.view='login';paint();return;}
+  await afterSignIn();
+ }
+ async function afterSignIn(){
+  RM.loginPassword='';RM.loginError='';RM.view='loading';RM.busy='Loading your projects…';paint();
+  try{RM.projects=(await BE.projects.list()).map(stubFrom);RM.homeError='';}
+  catch(e){RM.projects=[];RM.homeError=BE.friendly(e);}
+  RM.busy='';RM.view='home';
+  const link=RM.pendingLink;RM.pendingLink=null;
+  BE.setAddress(null);
+  if(link&&link.kind==='project'){
+   if(RM.projects.some(x=>x.id===link.id)){await openProject(link.id);return;}
+   RM.homeError='That project was not found in your account.';
+  }else if(link&&(link.kind==='code'||link.kind==='scan')){
+   // The phone sent a scan: start a Room Scanning project with it.
+   RM.draft=blankProject();RM.draft.method='scan';
+   if(link.kind==='code')RM.draft.code=link.code;else RM.draft._linkScan=link.scan;
+   RM.notice='Name the project, then continue to bring in your scan.';
+   RM.view='new';
+  }else if(link&&link.kind==='broken'){
+   RM.homeError='The link from the phone is damaged and could not be read. Use the code the app shows instead.';
+  }
+  paint();
+ }
+
+ // A full record for a project the server has: its saved record, or a new one
+ // from its meta and scan.
+ function recordFrom(r){
+  const meta=r.project;
+  let p=r.design&&r.design.project&&typeof r.design.project==='object'?r.design.project:null;
+  if(!p){
+   p=blankProject();
+   p._fresh=true;
+   p.method=METHOD_OF_SOURCE[meta.source]||'manual';
+   p.createdAt=meta.createdAt;
+   const stub=RM.projects.find(x=>x.id===meta.id);
+   if(stub&&stub._draft)Object.assign(p,stub._draft);
+   p.openingSource=p.method==='floorplan'?'floorplan':'manual';
+   p.openingsSeeded=true;p.utilitiesSeeded=true;
+   if(r.scan){
+    const rooms=SCAN.roomsFromScan(r.scan);
+    p.openingSource='scan';
+    if(rooms.length===1)Object.assign(p,SCAN.projectFields(rooms[0]));
+    else if(rooms.length>1)p._pickRooms=rooms;
+   }
+  }
+  p.id=meta.id;p.name=meta.name;p.updatedAt=meta.updatedAt;p._rev=meta.rev;p._scan=r.scan||null;
+  if(!Array.isArray(p.done))p.done=[];
+  return migrate(p);
+ }
+ function putRecord(p){
+  const i=RM.projects.findIndex(x=>x.id===p.id);
+  if(i<0)RM.projects.unshift(p);else RM.projects[i]=p;
+  RM.activeId=p.id;
+ }
+ // Into the editor, or first to the room picker when a home scan has several.
+ async function showProject(p){
+  putRecord(p);
+  if(p._pickRooms){RM.view='scanpick';paint();return;}
+  await waitForPlanner();
+  enterProject();
+  // A new project's first save stores its record and summary; an opened one
+  // saves when something changes.
+  if(p._fresh){delete p._fresh;save();}
+ }
+ async function openProject(id){
+  await busy('Opening project…','homeError',async()=>{
+   const prev=RM.view;RM.view='loading';paint();
+   try{await showProject(recordFrom(await BE.projects.get(id)));}
+   catch(e){RM.view=prev;throw e;}
+  });
+ }
+ // A new project on the server from the draft; `body` says where the room comes from.
+ async function createProject(body,draftExtras){
+  const d=RM.draft;
+  const meta=await BE.projects.create({...body,name:d.name.trim()});
+  RM.projects.unshift({...stubFrom(meta),_draft:{client:d.client||'',...(draftExtras||{})}});
+  const r=await BE.projects.get(meta.id);
+  RM.draft=null;
+  await showProject(recordFrom(r));
+ }
+ const createFromScan=body=>busy('Bringing in your scan…','formError',()=>createProject(body));
+
  function onClick(e){
   const el=e.target.closest('[data-rm]');if(!el)return;
+  // A label opens its file picker by clicking the input; let that through.
+  if(el.type==='file')return;
   const a=el.dataset.rm,app=RM.app,p=project();
   e.preventDefault();e.stopPropagation();
   const done=()=>{save();paint();};
   switch(a){
    case 'signin': {
-    const email=(RM.loginEmail||'').trim().toLowerCase(),pw=RM.loginPassword||'';
-    if(email===ADMIN.email&&pw===ADMIN.password){RM.user={name:'Admin',email:ADMIN.email,via:'password'};RM.view='home';RM.loginError='';RM.loginPassword='';}
-    else RM.loginError='Those details do not match the prototype admin account.';
-    done();break;}
-   case 'logout': flushPlanner();RM.user=null;RM.view='login';RM.activeId=null;RM.loginPassword='';done();break;
-   case 'home': flushPlanner();RM.view='home';RM.draft=null;done();break;
-   case 'new': RM.draft=blankProject();RM.view='new';paint();break;
+    const email=(RM.loginEmail||'').trim(),pw=RM.loginPassword||'';
+    if(!email){RM.loginError='Please enter your email address.';paint();break;}
+    if(RM.authMode==='reset'){
+     busy('Sending…','loginError',async()=>{await BE.auth.resetPassword(email);RM.authMode='signin';RM.notice='If there is an account for '+email+', a reset link is on its way. Check your inbox.';});
+     break;}
+    if(!pw){RM.loginError='Please enter your password.';paint();break;}
+    const create=RM.authMode==='create';
+    busy(create?'Creating your account…':'Signing in…','loginError',async()=>{
+     RM.user=create?await BE.auth.createAccount(email,pw):await BE.auth.signIn(email,pw);
+     RM.authMode='signin';
+    }).then(()=>{if(RM.user&&RM.view==='login')afterSignIn();});
+    break;}
+   case 'google':
+    busy('Signing in…','loginError',async()=>{RM.user=await BE.auth.google();})
+     .then(()=>{if(RM.user&&RM.view==='login')afterSignIn();});
+    break;
+   case 'auth-mode': RM.authMode=el.dataset.id;RM.loginError='';RM.notice='';paint();break;
+   case 'resend-verify':
+    busy('Sending…','homeError',async()=>{await BE.auth.resendVerification();RM.notice='Verification email sent to '+RM.user.email+'.';});
+    break;
+   case 'logout': {
+    flushPlanner();
+    busy('Signing out…','homeError',async()=>{
+     await flushSaves();
+     await BE.auth.signOut();
+     RM.user=null;RM.projects=[];RM.activeId=null;RM.draft=null;RM.view='login';RM.homeError='';
+     BE.setAddress(null);
+    });
+    break;}
+   case 'home': flushPlanner();RM.view='home';RM.draft=null;RM.formError='';RM.notice='';BE.setAddress(null);paint();break;
+   case 'new': RM.draft=blankProject();RM.formError='';RM.notice='';RM.view='new';paint();break;
    case 'plan-room': {
     const d=RM.draft,r=DETECTED_PLAN_ROOMS.find(x=>x.id===el.dataset.id);
-    if(r){d.roomId=r.id;d.roomName=r.name;d.roomW=r.w;d.roomD=r.d;d.roomType=r.type||'other';save();}
+    if(r){d.roomId=r.id;d.roomName=r.name;d.roomW=r.w;d.roomD=r.d;d.roomType=r.type||'other';}
     paint();break;}
-   case 'plan-go': enterProject();break;
+   case 'plan-go': {
+    // The plan's detected openings come with the room picked from it (see 'create').
+    const d=RM.draft;
+    busy('Creating project…','formError',()=>createProject({method:'floorplan'},{
+     roomId:d.roomId,roomName:d.roomName,roomW:d.roomW,roomD:d.roomD,roomType:d.roomType,
+     openingSource:'floorplan',openings:DETECTED_OPENINGS.map(o=>({...o})),utilities:[]}));
+    break;}
+   case 'scan-code': {
+    const code=String((RM.draft&&RM.draft.code)||'').replace(/[\s-]/g,'').toUpperCase();
+    if(!BE.isCode(code)){RM.formError='Enter the 6-character code shown in the RoomMuse Scanner app.';paint();break;}
+    createFromScan({code});
+    break;}
+   case 'scan-sample':
+    busy('Loading the sample…','formError',async()=>{const scan=await BE.sample(el.dataset.id);RM.busy='';await createProject({scan,source:'sample'});});
+    break;
+   case 'scan-link': createFromScan({scan:RM.draft._linkScan,source:'file'});break;
+   case 'scan-room': {
+    const r=p&&(p._pickRooms||[]).find(x=>x.key===el.dataset.id);
+    if(!r)break;
+    Object.assign(p,SCAN.projectFields(r));delete p._pickRooms;
+    showProject(p);
+    break;}
    case 'method': {
     const d=RM.draft;d.method=el.dataset.id;
     if(!Array.isArray(d.rooms)||!d.rooms.length)d.rooms=['living'];
@@ -9030,20 +9295,31 @@ function styleScreen(p){
     d.scenario=d.rooms[0];paint();break;}
    case 'back-new': RM.view='new';paint();break;
    case 'create': {
-    const d=RM.draft;if(!d.name.trim())break;
-    d.openingSource=d.method==='scan'?'scan':d.method==='floorplan'?'floorplan':'manual';
-    d.openings=d.openingSource==='manual'?[]:DETECTED_OPENINGS.map(o=>({...o}));
-    d.utilities=d.openingSource==='scan'?DETECTED_UTILITIES.map(o=>({...o})):[];
-    d.openingsSeeded=true;d.utilitiesSeeded=true;
-    RM.projects.push(d);RM.activeId=d.id;save();
+    // Room Scanning and Floor Plan first get their room (the next screen);
+    // the project is created on the server once it has one.
+    const d=RM.draft;if(!d.name.trim()||nameTaken(d))break;
+    RM.formError='';RM.notice='';
     if(d.method==='scan'){RM.view='scan';paint();}
     else if(d.method==='floorplan'){RM.view='plan';paint();}
-    else enterProject();
+    else busy('Creating project…','formError',()=>createProject({method:'manual'}));
     break;}
-   case 'scan-done': enterProject();break;
-   case 'open': flushPlanner();RM.activeId=el.dataset.id;enterProject();break;
+   case 'open': flushPlanner();openProject(el.dataset.id);break;
    case 'delete': {
-    const id=el.dataset.id;RM.projects=RM.projects.filter(x=>x.id!==id);if(RM.activeId===id)RM.activeId=null;done();break;}
+    const x=RM.projects.find(q=>q.id===el.dataset.id);if(!x)break;
+    RM.modal='<div class="rm-modal-back" data-rm="modal-dismiss"><div class="rm-modal" style="max-width:440px" role="dialog" aria-modal="true">'+
+     '<h2 class="rm-h2" style="margin-top:0">Delete “'+esc(x.name||'Untitled project')+'”?</h2>'+
+     '<p class="rm-sub">The project and everything placed in it are deleted for good. This cannot be undone.</p>'+
+     '<div class="rm-step-foot"><button class="rm-btn rm-btn--ghost" data-rm="modal-dismiss">Cancel</button>'+
+     '<button class="rm-btn rm-btn--primary" data-rm="delete-yes" data-id="'+esc(x.id)+'">Delete project</button></div></div></div>';
+    paint();break;}
+   case 'modal-dismiss': if(e.target===el||el.tagName==='BUTTON'){RM.modal=null;paint();}break;
+   case 'delete-yes': {
+    const id=el.dataset.id;RM.modal=null;
+    busy('Deleting…','homeError',async()=>{
+     await BE.projects.remove(id);
+     RM.projects=RM.projects.filter(x=>x.id!==id);if(RM.activeId===id)RM.activeId=null;
+    });
+    break;}
    case 'step': app.rmGo(el.dataset.id);break;
    case 'next': app.rmNext();break;
    case 'style': p.style=el.dataset.id;save();paintStep();break;
@@ -9084,7 +9360,8 @@ function styleScreen(p){
 
  function enterProject(){
   const p=project(),app=RM.app;if(!p||!app)return;
-  RM.view='app';
+  RM.view='app';RM.homeError='';RM.notice='';
+  BE.setAddress(p.id);
   const saved=p.planner&&Array.isArray(p.planner.spaces)&&p.planner.spaces.length?p.planner:null;
   const source=saved||RM.blank;
   if(source){
@@ -9612,7 +9889,7 @@ function styleScreen(p){
   const sp=this.space();if(!sp)return {};
   const cur=this.rmRoomShape(sp);
   const out={};
-  out.roomShapes=RM_ROOM_SHAPES.map(([id,label])=>({
+  out.roomShapes=(cur==='scan'?[...RM_ROOM_SHAPES,['scan','Scanned']]:RM_ROOM_SHAPES).map(([id,label])=>({
    id,label,selected:cur===id,
    buttonStyle:{display:'flex',flexDirection:'column',alignItems:'center',gap:'5px',
     padding:'7px 4px',borderRadius:'5px',cursor:'pointer',
@@ -9623,7 +9900,7 @@ function styleScreen(p){
   }));
   // Width and depth keep their 3D drag pins; the recess fields are typed only.
   out.roomPins=this.state.rmHideDims?[]:v.roomPins;
-  if(cur!=='rect'){
+  if(cur!=='rect'&&cur!=='scan'){
    const R=this.v3dRoomDims(sp),S=this.state;
    const field=(axis,label,fallback)=>({axis,label,
     value:S['roomDraft'+axis]??String(Math.round(sp['room'+axis.toUpperCase()]||fallback)),
@@ -9805,8 +10082,12 @@ function styleScreen(p){
     uses. Everything that still assumes a rectangle keeps reading roomW and
     roomD, which stay the bounding box of the footprint. */
  const RM_ROOM_SHAPES=[['rect','Rectangular'],['l','L-Shape'],['cut','Cut'],['t','T-Shape']];
+ // A scanned room ('scan') is none of these: it keeps the scan's own outline
+ // in sp.roomPoly (see roommuse/scan-room.js), in the same frame.
+ const hasScanPoly=sp=>!!sp&&Array.isArray(sp.roomPoly)&&sp.roomPoly.length>=3;
  P.rmRoomShape=function(sp){
   const id=sp&&sp.roomShape;
+  if(id==='scan')return hasScanPoly(sp)?'scan':'rect';
   return RM_ROOM_SHAPES.some(([k])=>k===id)?id:'rect';
  };
  // Footprint in millimetres, origin at the back-left corner, x across, z into
@@ -9815,6 +10096,11 @@ function styleScreen(p){
   const R=(W!=null&&D!=null)?{w:W,d:D}:this.v3dRoomDims(sp);
   const w=R.w,d=R.d,shape=this.rmRoomShape(sp);
   if(shape==='rect')return [[0,0],[w,0],[w,d],[0,d]];
+  // Stretched with the room when its width or depth is changed.
+  if(shape==='scan'){
+   const pw=Math.max(1,...sp.roomPoly.map(q=>q[0])),pd=Math.max(1,...sp.roomPoly.map(q=>q[1]));
+   return sp.roomPoly.map(([x,z])=>[x*w/pw,z*d/pd]);
+  }
   const nw=Math.min(Math.max(+(sp&&sp.roomNW)||Math.round(w*0.4),200),Math.max(300,w-400));
   const nd=Math.min(Math.max(+(sp&&sp.roomND)||Math.round(d*0.4),200),Math.max(300,d-400));
   if(shape==='l')return [[0,0],[w,0],[w,d-nd],[w-nw,d-nd],[w-nw,d],[0,d]];
@@ -9944,7 +10230,8 @@ function styleScreen(p){
     rectangles that stay clear of it, which errs towards keeping furniture in. */
  P.rmRoomRects=function(sp){
   const R=this.v3dRoomDims(sp),shape=this.rmRoomShape(sp),w=R.w,d=R.d;
-  if(shape==='rect')return [[0,0,w,d]];
+  // A scanned outline is not split into rectangles: its bounding box keeps furniture in.
+  if(shape==='rect'||shape==='scan')return [[0,0,w,d]];
   const nw=Math.min(Math.max(+(sp&&sp.roomNW)||Math.round(w*0.4),200),Math.max(300,w-400));
   const nd=Math.min(Math.max(+(sp&&sp.roomND)||Math.round(d*0.4),200),Math.max(300,d-400));
   if(shape==='l')return [[0,0,w,d-nd],[0,0,w-nw,d]];
@@ -10009,7 +10296,7 @@ function styleScreen(p){
   // it inside a 100×100 box instead would re-clamp the recess against that
   // box and fold the polygon inside out.
   const R=sp?this.v3dRoomDims(sp):{w:4500,d:3000};
-  const src={roomShape:shapeId,roomNW:(sp&&sp.roomNW),roomND:(sp&&sp.roomND)};
+  const src={roomShape:shapeId,roomNW:(sp&&sp.roomNW),roomND:(sp&&sp.roomND),roomPoly:(sp&&sp.roomPoly)};
   const poly=this.rmRoomPolygon(src,R.w,R.d);
   return 'polygon('+poly.map(([x,z])=>(x/R.w*100).toFixed(2)+'% '+(z/R.d*100).toFixed(2)+'%').join(',')+')';
  };
@@ -10607,9 +10894,9 @@ function styleScreen(p){
    stepBarEyebrow:active?('Step '+active.num+' of '+total):'Step 1 of '+total,
    stepBarTitle:active?active.label:'Room Dimensions',
    scenarioLabel:(project()&&(project().roomName||project().name))||'Room',
-   onRmHome:()=>{RM.view='home';paint();},
+   onRmHome:()=>{flushPlanner();RM.view='home';BE.setAddress(null);paint();},
    // Keep the header fields and the stored project record in step.
-   onProjectName:e=>{const p=project();if(p){p.name=e.target.value;p.updatedAt=Date.now();save();}return v.onProjectName(e);},
+   onProjectName:e=>{const p=project();if(p){p.name=e.target.value;p.updatedAt=Date.now();save();scheduleRename(p);}return v.onProjectName(e);},
    // Step controls belong next to the steps, not in a second panel on the far
    // right of the screen.
    roomPanelStyle:{...v.roomPanelStyle,'--rm-panel':'1',position:'absolute',left:'0',right:'auto',top:'0',bottom:'116px',
@@ -10652,8 +10939,18 @@ function styleScreen(p){
      miHeaderDescription:'Applies to every base cabinet in this kitchen.'}:{})};
  };
 
- load();
+ // The name typed in the header is the project's name on the server too
+ // (names are unique per account, so the server may refuse one).
+ let renameTimer=0;
+ function scheduleRename(p){
+  clearTimeout(renameTimer);
+  renameTimer=setTimeout(()=>{
+   const name=(p.name||'').trim();
+   if(!name||p._stub)return;
+   BE.projects.rename(p.id,name).then(m=>{p.name=m.name;setSaveError('');},e=>setSaveError(BE.friendly(e)));
+  },900);
+ }
+
  if(typeof requestAnimationFrame==='function'&&!dockRaf)syncDock();
- if(RM.user&&RM.projects.length)RM.view='home';
- setTimeout(()=>{mount();paint();},0);
+ setTimeout(()=>{mount();start();},0);
 }

@@ -1,10 +1,10 @@
 # MOZU Design
 
-Scan a room (or a whole home) with a LiDAR iPhone or iPad, then open it in the RoomMuse configurator on any computer
+Scan a room (or a whole home) with a LiDAR iPhone or iPad, then open it in the RoomMuse app on any computer
 and furnish it. Sign in to keep each scan as a project in your account; every change is saved as you work.
 
 ```
-phone app ──scan──▶ MOZU web (Vercel) ──6-character code──▶ type it on the laptop ──▶ rooms appear in the configurator
+phone app ──scan──▶ RoomMuse web (Vercel) ──6-character code──▶ type it on the laptop ──▶ the room appears in the editor
                                                                                     └──▶ signed in: saved as a project
 ```
 
@@ -13,9 +13,8 @@ phone app ──scan──▶ MOZU web (Vercel) ──6-character code──▶ 
 | Folder / file | What it is |
 |---|---|
 | `apps/ios/` | The scanning app (Swift, RoomPlan + LiDAR, socket detection) |
-| `apps/configurator/` | The website: RoomMuse configurator (Next.js + Three.js), built as a static site; see below |
-| `apps/configurator/models/mozu/` | MOZU's 30 cabinet and wardrobe models (GLB), measured into `apps/configurator/lib/models.manifest.json` |
-| `tools/mozu/` | The models' CAD sources (STEP), the size report that came with them, and the scripts that made the GLBs; reference only |
+| `apps/web/` | The website: the RoomMuse app (sign-in, projects, the five-step room editor), static files; see below |
+| `tools/mozu/` | MOZU's CAD sources (STEP) and the scripts that made the old configurator's GLBs; reference only (their output folder, `apps/configurator`, is gone) |
 | `packages/scan-sdk/` | The shared `mozu.roomscan/1` (one room) and `mozu.homescan/1` (several rooms) formats and floorplan engine |
 | `server/handoff-store.js` | Codes: 6 characters, 24 hours, stored in Redis (production) or memory (laptop) |
 | `server/app-store.js` | Users, sessions and projects on the same Redis / memory store |
@@ -24,61 +23,36 @@ phone app ──scan──▶ MOZU web (Vercel) ──6-character code──▶ 
 | `server/http.js`, `rate-limit.js` | Shared helpers: JSON responses, cookies, same-origin checks, per-network / per-account limits |
 | `server/server.js` | Laptop server (`npm start`) |
 | `api/` | The same APIs as Vercel functions |
-| `vercel.json`, `scripts/build-web.js` | Vercel build and routing; the build puts the configurator in `public/` |
-| `test/` | `npm test` (also runs on every push, `.github/workflows/test.yml`); the viewer's own tests: `npm run test:viewer` |
+| `vercel.json`, `scripts/build-web.js` | Vercel build and routing; the build copies `apps/web` into `public/` |
+| `test/` | `npm test` (also runs on every push, `.github/workflows/test.yml`) |
 | `samples/kitchen.roomscan.json` | A 4 m × 3 m kitchen with a door and two sockets, for testing |
 | `samples/twobedroom.roomscan.json` | A two-bedroom flat (`mozu.homescan/1`): hallway, L-shaped bedroom, rectangular bedroom |
 
 Node 20 or newer. Run `npm install` once (and after pulling changes).
 
-## The configurator (apps/configurator)
+## The app (apps/web)
 
-The website. It opens a scan by **Code from the phone**, from a `/scan/B7K4M2` link, from a sample, or from a
-`mozu.roomscan/1` / `mozu.homescan/1` file, with every room at its real position. The **Rooms** menu isolates one;
-**Show ceilings** adds ceilings. The library on the left adds MOZU's products; click an item for its menu
-(rotate, open the doors, finish, remove), drag it to move it, drop it on another to swap them.
+The website. Sign in (email + password, or Google), see your **Design projects**, start a new one, and work
+through the editor's five steps: **Room Setup** (shape, size, doors, windows, sockets), **Style Direction**,
+**Furniture & Placement**, **Configuration Summary** (the estimate) and **Submission**. Everything is saved to
+the project on the server as you work.
 
-**The catalogue is MOZU's range**, 30 models: kitchen base cabinets KF01–08, wall cabinets KH01–04 (hung at
-1450 mm), tall cabinets KT01–06, wardrobes W04–W10 and side cabinets W01–03 / ADJ1–2. Each is a GLB in
-`apps/configurator/models/mozu/` with one finish (colour, texture, sheen) you can change per item or for every
-item of the same kind. The build copies the files into `public/models/mozu/`.
+A new project captures its room one of three ways:
 
-- `apps/configurator/lib/models.manifest.json` is what the library, placement and scan matching trust: each
-  model's size in millimetres, its group, and which way its doors face in the file (`front`: `+z` by default;
-  `+x`/`-x` for files whose width runs along z, which also swaps the measured width and depth). After adding
-  or replacing a model file, run `npm run models:measure -w apps/configurator` to rewrite it; `front`, `name`
-  and `elevation` edited by hand survive a re-run, so a model whose doors face the wall is fixed by changing
-  its `front` line and re-running. The build refuses to start if the files and the manifest disagree.
-- **Doors and drawers open.** The model files are made from MOZU's STEP assemblies by
-  `tools/mozu/step-to-glb-parts.mjs` (offline; `cd tools/mozu && npm install && node step-to-glb-parts.mjs`),
-  which closes the doors the designers left standing open (turning each about its hinge pins) and writes each
-  door or drawer as its own GLB node: `door:<n>` / `drawer:<n>`, translated to its pivot, mesh in the closed
-  pose relative to it, with `extras` `{ part: 'hinge', axis, open: radians }` or
-  `{ part: 'slide', dir, open: mm }`. The manifest counts them (`parts`). Select a cabinet that has some and
-  press **Doors** in the bottom bar, the doors button in its menu, or **O**: they swing 95° out (drawers slide
-  out 60 % of their depth). It is saved with the design (`open` on the item) and undoable; pictures always
-  show the cabinet closed. Wardrobes and KF04 have no separate doors, so the button is greyed out for them.
-- **What a scan shows:** only the room — walls, doors, windows and sockets. None of the objects RoomPlan detected
-  (furniture, cupboards, appliances) is placed; they stay in the scan file but a new room starts empty, ready for
-  MOZU's range. A design saved before the MOZU catalogue opens with its old cabinets as the nearest MOZU models
-  (`lib/migrate.ts`, using the size matching in `lib/scanMatch.ts`); nothing is written back until you edit.
+- **Room Scanning** — scan with the iPhone/iPad app, then enter the 6-character code it shows (or open its
+  `/scan/B7K4M2` link). The scan keeps its exact outline, whatever its shape: the walls are the scan's walls,
+  with its doors, windows and sockets on them (`apps/web/roommuse/scan-room.js`). A home scan with several rooms
+  asks which room this project furnishes. A sample room or a scan file (`.json`) works the same way, for anyone
+  without a LiDAR device.
+- **Manual Input** — type the size, pick a shape (rectangular, L, cut corner, T), add doors and windows.
+- **Upload Floor Plan** — still the prototype's stand-in: it offers five detected rooms from a made-up plan.
 
-**Saving:** a code is only the way a scan gets from the phone to the laptop: it carries the scan, for 24 hours, and
-anyone who has it can load the scan. Signed in, the scan becomes a **project** in your account (**My projects** at
-`/projects`): the scan is copied out of the code, and every change to the design is saved to the project as you
-work. Projects belong to the account that created them; the code keeps expiring as usual. A sample or a file becomes
-a project the same way. See *Accounts & projects* below.
+The app is a one-time fork of RoomMuseStudio's WiseGlobe configurator prototype (a Design Component: React
+via a small runtime, three.js, no build step). Its files and how to change them are described in
+[`apps/web/README.md`](apps/web/README.md).
 
-It's deployed as a static site (`npm run build` → `public/`), beside the handoff API: the page calls
-`/api/scan-handoff` on its own site, and `/scan/:code` redirects to `/?code=:code`.
-
-**While working on it**, for live reload:
-```bash
-npm start          # terminal 1: the site and the code API on http://localhost:3000
-npm run viewer     # terminal 2: a live-reloading copy on http://localhost:3100
-```
-The copy on 3100 sends `/api/*` and `/scan/*` to port 3000. To use the Vercel deploy's codes instead, create
-`apps/configurator/.env.local` with `MOZU_HANDOFF_URL=https://your-project.vercel.app` and restart `npm run viewer`.
+**While working on it:** `npm start` serves it on http://localhost:3000 (after copying it into `public/`);
+re-run `npm run build` after editing `apps/web` and reload.
 
 ---
 
@@ -142,9 +116,9 @@ the scan codes. Passwords never reach our server, and password-reset / verificat
 3. **Authentication → Settings → Authorized domains → Add domain**: your Vercel address
    (e.g. `roommuse-design.vercel.app`). `localhost` is already listed.
 4. **Project settings** (gear) → **Your apps** → **</> Web** → register an app (no hosting). Copy `apiKey`,
-   `authDomain` and `projectId` from the config it shows into the configurator's sign-in settings
-   (`apps/configurator`; see that folder's README). These are public values; the Authorized domains list is what
-   protects them. Optionally restrict the API key by HTTP referrer in Google Cloud Console.
+   `authDomain` and `projectId` from the config it shows into `FIREBASE_CONFIG` at the top of
+   `apps/web/roommuse/backend.js`. These are public values; the Authorized domains list is what protects them.
+   Optionally restrict the API key by HTTP referrer in Google Cloud Console.
 5. In Vercel → **Settings → Environment Variables** add `FIREBASE_PROJECT_ID` = the same `projectId`, for
    Production, Preview and Development. Redeploy.
 6. Optional: **Authentication → Templates** to put the MOZU name on the reset and verification emails.
@@ -153,16 +127,18 @@ the scan codes. Passwords never reach our server, and password-reset / verificat
 
 - **A code** (`B7K4M2`) is the phone → laptop handoff and nothing more. It holds one scan (a room or a whole
   home) for 24 hours, and anyone who has it can fetch that scan. Nothing is ever saved *under* a code.
-- **A project** is a scan plus the design made on it, owned by one account. `POST /api/projects { code }` copies
-  the scan out of the code into a new project (the code is not stored and expires as usual); `{ scan }` does the
-  same for a file or a sample. From then on the editor works on the project: `PUT /api/projects/:id
-  { rev, design }` saves the design, and `rev` is the revision the editor loaded, so two tabs or devices can't
-  silently overwrite each other — the loser gets a 409 with the current `rev` and can reload.
+- **A project** is a room (usually a scan) plus the design made on it, owned by one account. `POST /api/projects
+  { code }` copies the scan out of the code into a new project (the code is not stored and expires as usual);
+  `{ scan }` does the same for a file or a sample, and `{ method: 'manual' | 'floorplan' }` makes a project with no
+  scan. From then on the editor works on the project: `PUT /api/projects/:id { rev, design: { project }, summary }`
+  saves the editor's project record, and `rev` is the revision the editor loaded, so two tabs or devices can't
+  silently overwrite each other — the loser gets a 409 and the editor stops saving and asks for a reload.
 - Projects are private: a project belongs to the account that created it, and any other account gets a 404
   on every route, so ids can't be probed. (The data model has room for sharing later: an unused `share` field.)
-- **My projects** (`/projects`) lists them newest first with a name, room count, where the scan came from
-  (`code`, `file` or `sample`) and, once the editor has sent one, a small thumbnail (JPEG or WebP, 64 KB at most).
-  New / Open / Rename / Duplicate / Delete map onto the routes in the table under *How the pieces fit together*.
+- **Design projects** (the app's home) lists them newest first with a name, where the room came from, and the
+  `summary` the editor sends with each save (room, client, steps done), so the list never fetches designs.
+  New / Open / Rename / Delete map onto the routes in the table under *How the pieces fit together* (Duplicate and
+  thumbnails exist on the server; the app doesn't use them yet).
   Names are unique within an account (ignoring case and spacing): a typed name that's already in use is refused
   (409), while automatic names (from the scan, a sample, or Duplicate) get " (2)", " (3)"… — send `suggestedName`
   instead of `name` for a default the server may number.
@@ -205,16 +181,18 @@ plug in and press ⌘R again to refresh it.
 1. On the phone: **Start scan**, walk slowly around the room pointing at every wall, the floor edges, doors,
    windows and sockets. Tap **Finish room**, then **Use this room**.
 2. On the floorplan screen, tap **Send to MOZU web**. A 6-character code appears, e.g. `B7K4M2`.
-3. On any computer, open the production address, type the code into **Code from the phone** (upper or lower case,
-   dashes and spaces are fine) and click **Load**. Or open the address the phone shows (`…/scan/B7K4M2`).
-4. The room appears in 3D with its doors, windows and sockets, and empty: furniture and cupboards the scan found
-   aren't placed. Add cabinets and wardrobes from the library on the left.
+3. On any computer, open the production address and sign in. **+ New Design Project** → name it → **Room
+   Scanning** → **Create project**, then type the code (upper or lower case, dashes and spaces are fine) and
+   **Bring in my scan**. Or open the address the phone shows (`…/scan/B7K4M2`): the code is filled in for you.
+4. The room appears at step 1, **Room Setup**, with its doors, windows and sockets, and empty: furniture and
+   cupboards the scan found aren't placed. Check it, then carry on through the steps.
 
 Codes last 24 hours. If a code has expired, tap **Send to MOZU web** again; you don't need to rescan.
 
 **A whole home:** after each room tap **Scan next room** instead, and **Build house** after the last one. The house
 screen's **Send house to MOZU web** uploads every room as one `mozu.homescan/1` under a single code, with the rooms
-in their real positions, and the configurator shows the whole home.
+in their real positions. A project furnishes one room: the app asks which; start another project with the same
+code for another room.
 
 ---
 
@@ -223,15 +201,13 @@ in their real positions, and the configurator shows the whole home.
 ```bash
 npm start          # builds the site, then http://localhost:3000 with codes, sessions and projects kept in memory
 npm run serve      # the same without rebuilding
-npm test           # stores, handoff / auth / projects APIs, rate limits, /scan links, Vercel functions
-npm run test:viewer  # the configurator: walls, placement, items, models, scan matching, migration, loading
-npm run models:measure -w apps/configurator  # re-measure the MOZU model files into lib/models.manifest.json
+npm test           # stores, handoff / auth / projects APIs, rate limits, /scan links, Vercel functions, scan → room
 ```
 
 `npm start` uses Redis instead of memory if `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set (for example
 after `vercel env pull .env`, then `set -a; . ./.env; set +a; npm start`). Sign-in works locally once the
-configurator's Firebase settings are filled in and `FIREBASE_PROJECT_ID` is exported (`localhost` is an authorized
-domain by default); without them the site still opens scans, and `/api/auth/session` answers 503. Tests never
+app's Firebase settings are filled in and `FIREBASE_PROJECT_ID` is exported (`localhost` is an authorized
+domain by default); without them sign-in fails and `/api/auth/session` answers 503. Tests never
 need Firebase: they sign tokens with a throw-away key (`test/helpers/fake-firebase.js`).
 
 Pretend to be the phone:
@@ -241,9 +217,9 @@ CODE=$(curl -s -X POST $BASE/api/scan-handoff -H 'content-type: application/json
   --data-binary @samples/kitchen.roomscan.json | sed 's/.*"code":"\([^"]*\)".*/\1/')
 echo "Your code is: $CODE"
 ```
-Open http://localhost:3000, type the code into **Code from the phone** and click **Load** (or open
-`http://localhost:3000/scan/$CODE`). The room is 4.00 × 3.00 m with a 2.50 m ceiling, 1 door (green frame on the back
-wall) and 2 sockets (0.3 m and 1.1 m high). Send `samples/twobedroom.roomscan.json` instead for a whole home.
+Open http://localhost:3000, sign in, start a **Room Scanning** project and enter the code (or open
+`http://localhost:3000/scan/$CODE`). The room is 4.00 × 3.00 m with a 2.50 m ceiling, 1 door on wall 1 and 2 sockets
+(0.3 m and 1.1 m high). Send `samples/twobedroom.roomscan.json` instead for a whole home (you pick one of its rooms).
 
 To send from the phone to your laptop, the phone needs an HTTPS address for it. Run
 `cloudflared tunnel --url http://localhost:3000` (`brew install cloudflared`), and put the address it prints into
@@ -259,11 +235,11 @@ the app's **Advanced → MOZU web address** field. **Reset** there returns to pr
   for **24 hours**, and rate-limits each network. Codes use `23456789ABCDEFGHJKMNPQRSTVWXYZ` (no 0/O, 1/I/L or U).
   In production codes live in Redis, so every Vercel instance sees them and they survive redeploys. Codes are
   claimed with an atomic `SET NX`, so two uploads can never get the same code.
-- **The configurator** fetches `GET /api/scan-handoff?code=…` and reads the scan with the SDK: any polygon
-  (L-shaped rooms included), walls with doors and windows cut in, sockets at their height, and the scanned
-  storage as MOZU models you can move, recolour or remove (see *The configurator* above for what is and isn't shown).
-- The server parses scans with the built SDK (`packages/scan-sdk/dist`), sockets included; the configurator uses
-  its source. After changing `packages/scan-sdk/src`, rebuild it: `npm run build -w packages/scan-sdk` (CI fails if
+- **The app** creates a project from the code (`POST /api/projects { code }`), fetches the project's copy of the
+  scan, and turns it into the editor's room: the exact outline, doors and windows, and sockets at their height
+  (`apps/web/roommuse/scan-room.js`). The objects RoomPlan detected are not placed.
+- The server parses scans with the built SDK (`packages/scan-sdk/dist`), sockets included; the app loads the same
+  built file for the phone's `/scan?poly=…` links. After changing `packages/scan-sdk/src`, rebuild it: `npm run build -w packages/scan-sdk` (CI fails if
   `dist` is out of date).
 - Scans may also carry optional `wallIds` (RoomPlan's wall UUIDs, one per polygon edge), `id` on openings,
   objects and fixtures, and `elevation` (bottom height above the floor) on objects. The schema is still
@@ -274,18 +250,18 @@ the app's **Advanced → MOZU web address** field. **Reset** there returns to pr
 
 | Address | What it does |
 |---|---|
-| `/` | the configurator |
-| `/projects`, `/editor` | the site's other pages (`projects.html` etc. from the static export; `cleanUrls` on Vercel, the same fallback locally) |
-| `/?code=B7K4M2` or `/scan/B7K4M2` | opens the configurator and loads that code |
-| `/scan?poly=…&h=…&scan=…` | the app's "Open in MOZU on this device" link |
+| `/` | the RoomMuse app (sign-in, projects, editor); `/?project=ID` opens a project |
+| `/?code=B7K4M2` or `/scan/B7K4M2` | after sign-in, starts a Room Scanning project with that code filled in |
+| `/scan?poly=…&h=…&scan=…` | the phone app's "Open on this device" link: the scan rides in the link |
+| `/ar?m=…` | View in AR for one Meshy model (`apps/web/ar.html`) |
 | `POST /api/scan-handoff` | upload a scan → `{ code, url, expiresAt }` (201), or `{ error }` with 400, 413, 429 or 503 |
 | `GET /api/scan-handoff?code=…` | fetch it → `{ code, scan, expiresAt }` (200), 400 bad code, 404 unknown/expired, 429 |
 | `POST /api/auth/session` `{ idToken }` | exchange a Firebase sign-in for the session cookie → `{ user, session }` (201); 401 bad token, 503 unconfigured |
 | `GET /api/auth/me` · `DELETE /api/auth/session` | who am I → `{ user, session }` (200 / 401) · sign out → `{ ok }` |
-| `GET /api/projects` | `{ projects: [meta] }`, newest first; meta = `{ id, name, rooms, source, createdAt, updatedAt, rev, thumbnail? }` |
-| `POST /api/projects` | `{ code, name? }` (copies the scan behind the code; 404 if gone) or `{ scan, name?, source?: 'file' \| 'sample' }` → `{ project }` (201); 409 at 100 projects |
-| `GET /api/projects/:id` | `{ project, scan, design }` — design is `{ version: 3, items }` or `null` before the first save |
-| `PUT /api/projects/:id` | save `{ rev, design: { items } }` → `{ rev, updatedAt }`; 409 `{ error, rev, updatedAt }` when `rev` is stale; 413 over 2 MB |
+| `GET /api/projects` | `{ projects: [meta] }`, newest first; meta = `{ id, name, rooms, source, createdAt, updatedAt, rev, thumbnail?, summary? }` |
+| `POST /api/projects` | `{ code, name? }` (copies the scan behind the code; 404 if gone) or `{ scan, name?, source?: 'file' \| 'sample' }` or `{ method: 'manual' \| 'floorplan', name? }` → `{ project }` (201); 409 at 100 projects |
+| `GET /api/projects/:id` | `{ project, scan, design }` — scan is `null` for manual / floor-plan projects; design is `{ version: 4, project }` or `null` before the first save |
+| `PUT /api/projects/:id` | save `{ rev, design: { project }, summary? }` → `{ rev, updatedAt }`; 409 `{ error, rev, updatedAt }` when `rev` is stale; 413 over 2 MB; summary ≤ 2 KB |
 | `PATCH /api/projects/:id` · `DELETE /api/projects/:id` | rename `{ name }` → `{ project }` · delete → `{ ok }` |
 | `POST /api/projects/:id/duplicate` | `{ name? }` → `{ project }` (201), scan and design copied |
 | `PUT /api/projects/:id/thumbnail` | `{ dataUrl }` (`data:image/jpeg` or `image/webp`, ≤ 64 KB) → `{ ok }` |
@@ -311,4 +287,4 @@ Every `/api/projects` route needs the session cookie (401 without one); someone 
 | Xcode: "Signing for MozuScanner requires a development team" | Install step 4: pick your Team. |
 | Xcode: "Failed to register bundle identifier" | Choose a unique bundle identifier (install step 4). |
 | App crashes the moment scanning starts (iOS 26) | Run the **MozuScanner** scheme generated by xcodegen; it turns off Metal API Validation, which causes this crash. |
-| No internet at the site | On the floorplan screen tap **Share scan**, AirDrop the file to the Mac, save it with a `.json` ending, and open it with **File…**. |
+| No internet at the site | On the floorplan screen tap **Share scan**, AirDrop the file to the Mac, save it with a `.json` ending, and open it with **Open scan file…** on the Room Scanning screen. |

@@ -15,11 +15,9 @@ jobs:
           node-version: 22
       - run: npm test
 
-  # The configurator (apps/configurator), the site build, and the scan SDK's source.
-  viewer:
+  # The site build (apps/web) and the scan SDK's source.
+  site:
     runs-on: ubuntu-latest
-    env:
-      NEXT_TELEMETRY_DISABLED: 1
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,6 +35,7 @@ jobs:
             exit 1
           fi
       - run: npm run typecheck -w packages/scan-sdk
-      - run: npm test -w apps/configurator
-      # The site exactly as Vercel builds it (type-checks the configurator too).
+      # The site exactly as Vercel builds it (checks the app's files are all there).
       - run: npm run build
+      - name: The app's scripts parse
+        run: for f in apps/web/boot.js apps/web/app/planner.js apps/web/roommuse/*.js; do node --check "$f" || exit 1; done

@@ -1,9 +1,9 @@
 /*
- * MOZU design server — no dependencies, plain Node. For local use (`npm start`);
+ * RoomMuse server — no dependencies, plain Node. For local use (`npm start`);
  * production runs the same API as Vercel functions (api/**\/*.js, vercel.json).
  *
- *   GET  /                              the site: the configurator, built into public/ (npm run build)
- *   GET  /projects, /editor, …          the site's other pages (Next's static export writes <route>.html)
+ *   GET  /                              the site: the RoomMuse app (apps/web), copied into public/ (npm run build)
+ *   GET  /<page>                        <page>.html or <page>/index.html, as Vercel's cleanUrls do
  *   GET  /packages/scan-sdk/dist/*      the scan SDK, so the page can load it
  *   GET  /scan, /scan/:code             what the iPad app links to → redirected to the page
  *   POST /api/scan-handoff              iPad uploads a RoomScan → { code, url, expiresAt }
@@ -28,7 +28,7 @@ const { createAuthApi } = require('./auth-api');
 const { createProjectApi } = require('./project-api');
 
 const ROOT = path.resolve(__dirname, '..');
-// The built site: the configurator's static export plus the SDK (scripts/build-web.js),
+// The built site: apps/web, the samples and the SDK (scripts/build-web.js),
 // the same folder Vercel serves.
 const WEB_DIR = path.join(ROOT, 'public');
 const SDK_DIR = path.join(ROOT, 'packages', 'scan-sdk', 'dist');
@@ -46,6 +46,9 @@ const MIME = {
   '.txt': 'text/plain; charset=utf-8',
   '.woff2': 'font/woff2',
   '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.glb': 'model/gltf-binary',
+  '.wasm': 'application/wasm',
 };
 
 function serveFile(res, baseDir, relPath, method) {
@@ -66,9 +69,8 @@ function serveFile(res, baseDir, relPath, method) {
 }
 
 /**
- * A page of the built site. Next's static export writes `/projects` as
- * `projects.html` (or `projects/index.html`), and Vercel serves those at the
- * clean URL (vercel.json `cleanUrls`); this does the same locally.
+ * A page of the built site: `/ar` is `ar.html` (or `ar/index.html`), which
+ * Vercel serves at the clean URL (vercel.json `cleanUrls`); this does the same locally.
  */
 function servePage(res, webDir, p, method) {
   if (serveFile(res, webDir, p === '/' ? 'index.html' : p, method)) return true;
