@@ -17,7 +17,8 @@ const HOME = fs.readFileSync(path.join(__dirname, '..', 'samples', 'twobedroom.r
 /** The kitchen sample carries no name; this one does. */
 const NAMED = JSON.stringify({ ...JSON.parse(SAMPLE), name: 'Kitchen' });
 
-const item = (uid, extra = {}) => ({ uid, roomKey: 'room-0', name: 'Bed', center: { x: 1, z: 2 }, rotation: 0, ...extra });
+/** What the editor saves: its own project record, opaque to the server. */
+const record = (n, extra = {}) => ({ step: 'room', planner: { spaces: [{ id: 'sp1', items: Array.from({ length: n }, (_, i) => ({ uid: i + 1 })) }] }, ...extra });
 const JPEG = 'data:image/jpeg;base64,' + Buffer.from('not really a jpeg').toString('base64');
 
 async function listen(server) {
@@ -53,18 +54,13 @@ async function setup(t, { store = new MemoryAppStore(), limits = {}, ...opts } =
 }
 
 test('validateDesign checks the shape the editor saves, shallowly', () => {
-  assert.equal(validateDesign({ items: [] }), null);
-  assert.equal(validateDesign({ items: [item(1), item(2, { anything: { goes: true } })] }), null);
+  assert.equal(validateDesign({ project: {} }), null);
+  assert.equal(validateDesign({ project: record(2, { anything: { goes: true } }) }), null);
   assert.match(validateDesign(null), /object/);
   assert.match(validateDesign([]), /object/);
-  assert.match(validateDesign({}), /items/);
-  assert.match(validateDesign({ items: {} }), /items/);
-  assert.match(validateDesign({ items: [null] }), /object/);
-  assert.match(validateDesign({ items: [item('1')] }), /uid/);
-  assert.match(validateDesign({ items: [item(1, { roomKey: 7 })] }), /roomKey/);
-  assert.match(validateDesign({ items: [item(1, { center: { x: 1 } })] }), /center/);
-  assert.match(validateDesign({ items: [item(1, { center: { x: '1', z: 2 } })] }), /center/);
-  assert.match(validateDesign({ items: [item(1, { center: null })] }), /center/);
+  assert.match(validateDesign({}), /project/);
+  assert.match(validateDesign({ project: [] }), /project/);
+  assert.match(validateDesign({ project: 'no' }), /project/);
 });
 
 test('defaultName comes from the scan when it has one', () => {
@@ -105,20 +101,20 @@ for (const [name, makeStore] of [
     assert.equal(opened.body.design, null, 'no design yet');
 
     // The editor PUTs the whole design with the rev it loaded.
-    const saved = await A('PUT', `/api/projects/${p.id}`, { rev: 1, design: { items: [item(101)] } });
+    const saved = await A('PUT', `/api/projects/${p.id}`, { rev: 1, design: { project: record(101) } });
     assert.equal(saved.status, 200);
     assert.equal(saved.body.rev, 2);
     assert.ok(saved.body.updatedAt >= p.updatedAt);
     assert.deepEqual(Object.keys(saved.body).sort(), ['rev', 'updatedAt']);
 
-    const stale = await A('PUT', `/api/projects/${p.id}`, { rev: 1, design: { items: [] } });
+    const stale = await A('PUT', `/api/projects/${p.id}`, { rev: 1, design: { project: record(0) } });
     assert.equal(stale.status, 409);
     assert.equal(stale.body.rev, 2);
     assert.equal(stale.body.updatedAt, saved.body.updatedAt);
     assert.match(stale.body.error, /changed somewhere else/);
 
     const again = await A('GET', `/api/projects/${p.id}`);
-    assert.deepEqual(again.body.design, { version: 3, items: [item(101)] }, 'the stale save changed nothing; the design has a version');
+    assert.deepEqual(again.body.design, { version: 4, project: record(101) }, 'the stale save changed nothing; the design has a version');
     assert.equal(again.body.project.rev, 2);
 
     const list = (await A('GET', '/api/projects')).body.projects;
@@ -141,7 +137,7 @@ for (const [name, makeStore] of [
     assert.equal(dup.body.project.source, 'code');
     assert.equal(dup.body.project.rev, 1);
     const dupOpened = (await A('GET', `/api/projects/${dup.body.project.id}`)).body;
-    assert.deepEqual(dupOpened.design, { version: 3, items: [item(101)] }, 'the copy has the design');
+    assert.deepEqual(dupOpened.design, { version: 4, project: record(101) }, 'the copy has the design');
     assert.deepEqual(dupOpened.scan, opened.body.scan, 'and the scan');
     const named = await A('POST', `/api/projects/${p.id}/duplicate`, { name: 'Second copy' });
     assert.equal(named.body.project.name, 'Second copy');
@@ -223,25 +219,25 @@ test('saving: validation, revs and the size cap', async (t) => {
   const { A } = await setup(t, { maxProjectBytes: 20_000 });
   const p = (await A('POST', '/api/projects', { scan: JSON.parse(SAMPLE) })).body.project;
   const put = (body) => A('PUT', `/api/projects/${p.id}`, body);
-  assert.equal((await put({ rev: 'one', design: { items: [] } })).status, 400);
-  assert.equal((await put({ rev: 0, design: { items: [] } })).status, 400);
-  assert.equal((await put({ design: { items: [] } })).status, 400);
+  const empty = { project: {} };
+  assert.equal((await put({ rev: 'one', design: empty })).status, 400);
+  assert.equal((await put({ rev: 0, design: empty })).status, 400);
+  assert.equal((await put({ design: empty })).status, 400);
   assert.equal((await put({ rev: 1 })).status, 400);
   assert.equal((await put({ rev: 1, design: [] })).status, 400);
-  assert.equal((await put({ rev: 1, design: { items: 'no' } })).status, 400);
-  assert.match((await put({ rev: 1, design: { items: [{ uid: 'a', roomKey: 'r', center: { x: 0, z: 0 } }] } })).body.error, /uid/);
-  assert.match((await put({ rev: 1, design: { items: [{ uid: 1, center: { x: 0, z: 0 } }] } })).body.error, /roomKey/);
-  assert.match((await put({ rev: 1, design: { items: [{ uid: 1, roomKey: 'r', center: { x: 0 } }] } })).body.error, /center/);
-  const big = await put({ rev: 1, design: { items: [item(1, { blob: 'x'.repeat(25_000) })] } });
+  assert.match((await put({ rev: 1, design: { project: 'no' } })).body.error, /project/);
+  assert.match((await put({ rev: 1, design: empty, summary: [] })).body.error, /summary/);
+  assert.match((await put({ rev: 1, design: empty, summary: { note: 'x'.repeat(3000) } })).body.error, /summary is too large/);
+  const big = await put({ rev: 1, design: { project: record(1, { blob: 'x'.repeat(25_000) }) } });
   assert.equal(big.status, 413);
   assert.equal((await A('GET', `/api/projects/${p.id}`)).body.project.rev, 1, 'nothing was saved');
 
-  assert.equal((await put({ rev: 1, design: { items: [item(1)], version: 99, extra: true } })).status, 200);
+  assert.equal((await put({ rev: 1, design: { project: record(1), version: 99, extra: true } })).status, 200);
   const got = (await A('GET', `/api/projects/${p.id}`)).body;
-  assert.deepEqual(got.design, { version: 3, items: [item(1)] }, 'only items are kept, under the server\'s version');
-  assert.equal((await put({ rev: 2, design: { items: [] } })).body.rev, 3);
-  assert.equal((await put({ rev: 5, design: { items: [] } })).status, 409, 'a rev from the future is stale too');
-  assert.equal((await put({ rev: 3, design: { items: [] } })).body.rev, 4);
+  assert.deepEqual(got.design, { version: 4, project: record(1) }, 'only the project is kept, under the server\'s version');
+  assert.equal((await put({ rev: 2, design: empty })).body.rev, 3);
+  assert.equal((await put({ rev: 5, design: empty })).status, 409, 'a rev from the future is stale too');
+  assert.equal((await put({ rev: 3, design: empty })).body.rev, 4);
 });
 
 test('thumbnails: JPEG or WebP data URLs up to 64 KB, shown in the list', async (t) => {
@@ -275,7 +271,7 @@ test('projects are private: another account gets 404 on every route', async (t) 
   const { A, B } = await setup(t);
   const p = (await A('POST', '/api/projects', { scan: JSON.parse(SAMPLE) })).body.project;
   assert.equal((await B('GET', `/api/projects/${p.id}`)).status, 404);
-  assert.equal((await B('PUT', `/api/projects/${p.id}`, { rev: 1, design: { items: [] } })).status, 404);
+  assert.equal((await B('PUT', `/api/projects/${p.id}`, { rev: 1, design: { project: {} } })).status, 404);
   assert.equal((await B('PATCH', `/api/projects/${p.id}`, { name: 'x' })).status, 404);
   assert.equal((await B('DELETE', `/api/projects/${p.id}`)).status, 404);
   assert.equal((await B('POST', `/api/projects/${p.id}/duplicate`, {})).status, 404);
@@ -366,4 +362,39 @@ test('project names are unique within an account: typed duplicates are refused, 
   assert.equal((await A('POST', `/api/projects/${p.id}/duplicate`, { name: 'Kitchen (3)' })).status, 409);
 
   assert.equal((await B('POST', '/api/projects', { code, name: 'Kitchen' })).status, 201, 'names are per account');
+});
+
+test('a room entered by hand (manual or floor plan) makes a project with no scan', async (t) => {
+  const { A } = await setup(t);
+  assert.match((await A('POST', '/api/projects', {})).body.error, /method/);
+  assert.match((await A('POST', '/api/projects', { method: 'guess' })).body.error, /manual, floorplan/);
+
+  const manual = await A('POST', '/api/projects', { method: 'manual', name: 'Living Room — Maple Street' });
+  assert.equal(manual.status, 201);
+  assert.equal(manual.body.project.source, 'manual');
+  assert.equal(manual.body.project.name, 'Living Room — Maple Street');
+  assert.equal(manual.body.project.rooms, 1);
+  const plan = await A('POST', '/api/projects', { method: 'floorplan' });
+  assert.equal(plan.body.project.source, 'floorplan');
+  assert.equal(plan.body.project.name, 'Room', 'a default name when none is given');
+  assert.equal((await A('POST', '/api/projects', { method: 'manual', name: 'living room — maple street' })).status, 409, 'names stay unique');
+
+  const id = manual.body.project.id;
+  const opened = (await A('GET', `/api/projects/${id}`)).body;
+  assert.equal(opened.scan, null);
+  assert.equal(opened.design, null);
+
+  // The project list shows what the last save said about the project.
+  const summary = { roomName: 'Living Room', method: 'manual', done: 2, steps: 5 };
+  assert.equal((await A('PUT', `/api/projects/${id}`, { rev: 1, design: { project: record(1) }, summary })).status, 200);
+  assert.deepEqual((await A('GET', '/api/projects')).body.projects.find((m) => m.id === id).summary, summary);
+  assert.equal((await A('PUT', `/api/projects/${id}`, { rev: 2, design: { project: record(2) } })).status, 200);
+  assert.deepEqual((await A('GET', `/api/projects/${id}`)).body.project.summary, summary, 'kept until the next one');
+
+  const copy = await A('POST', `/api/projects/${id}/duplicate`, {});
+  assert.equal(copy.status, 201);
+  assert.deepEqual(copy.body.project.summary, summary, 'a copy keeps the summary');
+  const copied = (await A('GET', `/api/projects/${copy.body.project.id}`)).body;
+  assert.equal(copied.scan, null);
+  assert.deepEqual(copied.design, { version: 4, project: record(2) });
 });

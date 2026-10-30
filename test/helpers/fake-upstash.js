@@ -77,7 +77,7 @@ function fakeUpstash({ token = 'secret', now = () => Date.now() } = {}) {
   };
 
   // Mirrors RedisAppStore.SAVE_SCRIPT: KEYS = meta, design, userIndex;
-  // ARGV = expectedRev, designJson, newRev, updatedAt, bytes, pid
+  // ARGV = expectedRev, designJson, newRev, updatedAt, bytes, pid, summary
   function conditionalSave(keys, argv) {
     const meta = live(keys[0]);
     if (!meta) return 'NOTFOUND';
@@ -86,6 +86,7 @@ function fakeUpstash({ token = 'secret', now = () => Date.now() } = {}) {
     run(['SET', keys[1], argv[1]]);
     run(['HSET', keys[0], 'rev', argv[2], 'updatedAt', argv[3], 'bytes', argv[4]]);
     run(['ZADD', keys[2], argv[3], argv[5]]);
+    if (argv[6]) run(['HSET', keys[0], 'summary', argv[6]]);
     return 'OK:' + argv[2];
   }
 

@@ -108,6 +108,26 @@ for (const [name, make] of [
     assert.equal(got.meta.rev, 1);
     assert.ok(got.meta.bytes > 0);
   });
+
+  test(`${name}: a room entered by hand has no scan; a save can carry the list summary`, async () => {
+    const store = make();
+    const now = Date.now();
+    await store.createProject({ id: 'p1', ownerId: 'u1', name: 'Hand', rooms: 1, source: 'manual', createdAt: now, updatedAt: now }, null);
+    const got = await store.getProject('p1');
+    assert.equal(got.scan, null, 'opens without a scan');
+    assert.ok(!('summary' in got.meta), 'no summary until a save brings one');
+
+    await store.saveDesign('p1', 1, design(1), '{"done":1}');
+    assert.equal((await store.getProjectMeta('p1')).summary, '{"done":1}');
+    await store.saveDesign('p1', 2, design(2));
+    assert.equal((await store.getProjectMeta('p1')).summary, '{"done":1}', "a save without one keeps the last");
+    assert.equal((await store.listProjects('u1'))[0].summary, '{"done":1}', 'the list carries it');
+
+    if (name === 'redis') {
+      await store.createProject({ id: 'p2', ownerId: 'u1', name: 'Scan', rooms: 1, source: 'code', createdAt: now, updatedAt: now }, null);
+      assert.equal(await store.getProject('p2'), null, 'a scanned project whose scan is unreadable stays unreadable');
+    }
+  });
 }
 
 test('redis: the keys are laid out as documented', async () => {

@@ -4,14 +4,19 @@
  *   GET    /api/projects                 → { projects: [meta] }       newest first
  *   POST   /api/projects                 { code, name? }              → 201 { project }   copy the scan behind a code
  *                                        { scan, name?, source? }     → 201 { project }   a scan file or sample
- *   GET    /api/projects/:id             → { project, scan, design }  design is { version, items } or null
- *   PUT    /api/projects/:id             { rev, design: { items } } → { rev, updatedAt } | 409 { error, rev, updatedAt }
+ *                                        { method, name? }            → 201 { project }   no scan: method is 'manual' or 'floorplan'
+ *   GET    /api/projects/:id             → { project, scan, design }  scan is null without one; design is { version, project } or null
+ *   PUT    /api/projects/:id             { rev, design: { project }, summary? } → { rev, updatedAt } | 409 { error, rev, updatedAt }
  *   PATCH  /api/projects/:id             { name } → { project }
  *   DELETE /api/projects/:id             → { ok }
  *   POST   /api/projects/:id/duplicate   { name? } → 201 { project }
  *   PUT    /api/projects/:id/thumbnail   { dataUrl } → { ok }         JPEG or WebP, 64 KB at most
  *
- * meta = { id, name, rooms, source: 'code' | 'file' | 'sample', createdAt, updatedAt, rev, thumbnail? }
+ * meta = { id, name, rooms, source: 'code' | 'file' | 'sample' | 'manual' | 'floorplan', createdAt, updatedAt, rev, thumbnail?, summary? }
+ *
+ * The design is the editor's own project record, stored as sent. `summary` is
+ * a few small facts the project list shows (room, client, steps done) so the
+ * list never has to fetch designs; it is saved with each design.
  *
  * A code is only the phone → laptop handoff: creating a project copies the scan
  * out of it, the code itself is not kept and expires as usual. Every route
@@ -27,7 +32,10 @@ const { createRateLimiter, numberFrom, unavailable } = require('./rate-limit');
 const { sendJson, readJson, clientIp } = require('./http');
 
 const NAME_MAX = 120;
-const DESIGN_VERSION = 3;
+const DESIGN_VERSION = 4;
+const SUMMARY_MAX_BYTES = 2 * 1024;
+/** Projects started without a scan, by how the room was entered. */
+const NO_SCAN_METHODS = ['manual', 'floorplan'];
 const THUMBNAIL_MAX_BYTES = 64 * 1024;
 const THUMBNAIL_RE = /^data:image\/(?:jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
 const ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
@@ -56,6 +64,7 @@ const roomCount = (scan) => (isHome(scan) ? scan.rooms.length : 1);
 
 /** The name a project gets when none is given: what the scan calls itself, else its shape. */
 function defaultName(scan) {
+  if (!scan) return 'Room';
   if (typeof scan.name === 'string' && scan.name.trim()) return scan.name.trim();
   if (!isHome(scan)) return 'Room';
   const n = scan.rooms.length;
@@ -72,20 +81,22 @@ async function normaliseScan(raw) {
   return parseScan(raw);
 }
 
-/** Why `design` can't be stored, or null when it is fine. Shallow on purpose: the editor owns the item shape. */
+const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+
+/** Why `design` can't be stored, or null when it is fine. Shallow on purpose: the editor owns the project's shape. */
 function validateDesign(design) {
-  if (!design || typeof design !== 'object' || Array.isArray(design)) return 'design must be an object.';
-  if (!Array.isArray(design.items)) return 'design.items must be an array.';
-  for (const item of design.items) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return 'Every item must be an object.';
-    if (typeof item.uid !== 'number' || !Number.isFinite(item.uid)) return 'Every item needs a numeric uid.';
-    if (typeof item.roomKey !== 'string') return 'Every item needs a string roomKey.';
-    const c = item.center;
-    if (!c || typeof c !== 'object' || typeof c.x !== 'number' || typeof c.z !== 'number' || !Number.isFinite(c.x) || !Number.isFinite(c.z)) {
-      return 'Every item needs a center with numeric x and z.';
-    }
-  }
+  if (!isPlainObject(design)) return 'design must be an object.';
+  if (!isPlainObject(design.project)) return 'design.project must be an object.';
   return null;
+}
+
+/** The summary as stored in meta (JSON text), '' to leave it out, or an error sentence. */
+function summaryText(summary) {
+  if (summary === undefined || summary === null) return { text: '' };
+  if (!isPlainObject(summary)) return { error: 'summary must be an object.' };
+  const text = JSON.stringify(summary);
+  if (Buffer.byteLength(text) > SUMMARY_MAX_BYTES) return { error: `summary is too large (limit ${SUMMARY_MAX_BYTES / 1024} KB).` };
+  return { text };
 }
 
 /** What the browser sees of a project: no owner, no internal sizes. */
@@ -95,6 +106,9 @@ function publicMeta(meta) {
     createdAt: meta.createdAt, updatedAt: meta.updatedAt, rev: meta.rev,
   };
   if (meta.thumbnail) out.thumbnail = meta.thumbnail;
+  if (meta.summary) {
+    try { out.summary = JSON.parse(meta.summary); } catch { /* unreadable: leave it out */ }
+  }
   return out;
 }
 
@@ -187,12 +201,16 @@ function createProjectApi(options = {}) {
     if (!who) return;
     const input = await body(req, res);
     if (!input) return;
-    if (input.code === undefined && input.scan === undefined) {
-      return sendJson(res, 400, { error: 'Send the code from the phone ({ code }) or a scan ({ scan }).' });
+    if (input.code === undefined && input.scan === undefined && input.method === undefined) {
+      return sendJson(res, 400, { error: 'Send the code from the phone ({ code }), a scan ({ scan }) or how the room is entered ({ method }).' });
     }
 
     let scan, source;
-    if (input.code !== undefined) {
+    if (input.code === undefined && input.scan === undefined) {
+      if (!NO_SCAN_METHODS.includes(input.method)) return sendJson(res, 400, { error: `method must be one of: ${NO_SCAN_METHODS.join(', ')}.` });
+      scan = null;
+      source = input.method;
+    } else if (input.code !== undefined) {
       if (!(await rate.allowed('lookups', clientIp(req)))) return rate.tooMany(res, 'code lookups from this network');
       if (!normaliseCode(input.code)) return sendJson(res, 400, { error: 'Enter the 6-character code shown in the MOZU Scanner app.' });
       let found;
@@ -243,12 +261,14 @@ function createProjectApi(options = {}) {
     if (!Number.isInteger(rev) || rev < 1) return sendJson(res, 400, { error: 'rev must be the revision you loaded.' });
     const why = validateDesign(input.design);
     if (why) return sendJson(res, 400, { error: why });
-    const design = { version: DESIGN_VERSION, items: input.design.items };
+    const summary = summaryText(input.summary);
+    if (summary.error) return sendJson(res, 400, { error: summary.error });
+    const design = { version: DESIGN_VERSION, project: input.design.project };
     if (Buffer.byteLength(JSON.stringify(design)) > maxBytes) return tooBig(res);
     try {
       const meta = await owned(res, who, pid);
       if (!meta) return;
-      const result = await getStore().saveDesign(pid, rev, design);
+      const result = await getStore().saveDesign(pid, rev, design, summary.text);
       if (!result) return notFound(res);
       if (!result.ok) {
         return sendJson(res, 409, { error: 'This project was changed somewhere else since you opened it.', rev: result.rev, updatedAt: result.updatedAt });
@@ -303,7 +323,7 @@ function createProjectApi(options = {}) {
       const now = Date.now();
       const copy = await getStore().createProject({
         id: newId(), ownerId: who.uid, name, rooms: meta.rooms, source: meta.source,
-        createdAt: now, updatedAt: now, rev: 1, thumbnail: meta.thumbnail,
+        createdAt: now, updatedAt: now, rev: 1, thumbnail: meta.thumbnail, summary: meta.summary,
       }, found.scan, found.design);
       return ok(res, 201, { project: publicMeta(copy) }, who);
     } catch (e) { return unavailable(res, e); }
@@ -366,4 +386,4 @@ function createProjectApi(options = {}) {
   return { handle, getStore, maxBytes, maxProjects };
 }
 
-module.exports = { createProjectApi, validateDesign, defaultName, publicMeta, DESIGN_VERSION, THUMBNAIL_MAX_BYTES };
+module.exports = { createProjectApi, validateDesign, defaultName, publicMeta, DESIGN_VERSION, THUMBNAIL_MAX_BYTES, NO_SCAN_METHODS };

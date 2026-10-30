@@ -3,9 +3,10 @@
  *
  *   mozu:user:{uid}            HASH    email, name, picture, emailVerified, providers, createdAt, lastLoginAt
  *   mozu:session:{sid}         STRING  JSON { uid, createdAt, expiresAt, ua }, with a Redis TTL
- *   mozu:project:{pid}         HASH    ownerId, name, rooms, source, createdAt, updatedAt, rev, bytes, thumbnail?, share?
- *   mozu:project:{pid}:scan    STRING  the scan (mozu.roomscan/1 room or mozu.homescan/1 home), normalised
- *   mozu:project:{pid}:design  STRING  JSON { version, items } — absent until the first save
+ *   mozu:project:{pid}         HASH    ownerId, name, rooms, source, createdAt, updatedAt, rev, bytes, thumbnail?, summary?, share?
+ *   mozu:project:{pid}:scan    STRING  the scan (mozu.roomscan/1 room or mozu.homescan/1 home), normalised;
+ *                                      JSON null for a room entered by hand (source manual or floorplan)
+ *   mozu:project:{pid}:design  STRING  JSON { version, project } — absent until the first save
  *   mozu:user:{uid}:projects   ZSET    pid scored by updatedAt (newest first)
  *
  * Meta, scan and design are separate so listing a gallery never fetches the
@@ -31,7 +32,9 @@ const K = {
 };
 
 const META_NUMBERS = ['createdAt', 'updatedAt', 'rev', 'rooms', 'bytes'];
-const META_OPTIONAL = ['thumbnail', 'share'];
+const META_OPTIONAL = ['thumbnail', 'summary', 'share'];
+/** Sources whose projects have no scan (the room was entered by hand). */
+const NO_SCAN_SOURCES = ['manual', 'floorplan'];
 
 const newId = (bytes = 16) => crypto.randomBytes(bytes).toString('base64url');
 const newSessionId = () => newId(32);
@@ -150,13 +153,14 @@ class MemoryAppStore extends MemoryHandoffStore {
     return n;
   }
 
-  async saveDesign(pid, expectedRev, design) {
+  /** `summary` (JSON text) replaces the stored one when given; '' keeps it. */
+  async saveDesign(pid, expectedRev, design, summary = '') {
     const p = this.projects.get(pid);
     if (!p) return null;
     if (p.meta.rev !== Number(expectedRev)) return { ok: false, conflict: true, rev: p.meta.rev, updatedAt: p.meta.updatedAt };
     const designJson = JSON.stringify(design);
     const updatedAt = this.now();
-    p.meta = normaliseMeta({ ...p.meta, rev: p.meta.rev + 1, updatedAt, bytes: bytesOf(designJson) });
+    p.meta = normaliseMeta({ ...p.meta, rev: p.meta.rev + 1, updatedAt, bytes: bytesOf(designJson), ...(summary ? { summary } : {}) });
     p.designJson = designJson;
     return { ok: true, rev: p.meta.rev, updatedAt };
   }
@@ -179,7 +183,7 @@ class MemoryAppStore extends MemoryHandoffStore {
 // Conditional save: only when the stored rev matches. Returns plain strings so
 // the REST pipeline never turns a business outcome into an error.
 //   KEYS: meta, design, userIndex
-//   ARGV: expectedRev, designJson, newRev, updatedAt, bytes, pid
+//   ARGV: expectedRev, designJson, newRev, updatedAt, bytes, pid, summary ('' keeps the stored one)
 const SAVE_SCRIPT = `
 local rev = redis.call('HGET', KEYS[1], 'rev')
 if not rev then return 'NOTFOUND' end
@@ -187,6 +191,7 @@ if rev ~= ARGV[1] then return 'CONFLICT:' .. rev end
 redis.call('SET', KEYS[2], ARGV[2])
 redis.call('HSET', KEYS[1], 'rev', ARGV[3], 'updatedAt', ARGV[4], 'bytes', ARGV[5])
 redis.call('ZADD', KEYS[3], ARGV[4], ARGV[6])
+if ARGV[7] ~= '' then redis.call('HSET', KEYS[1], 'summary', ARGV[7]) end
 return 'OK:' .. ARGV[3]
 `.trim();
 
@@ -289,7 +294,7 @@ class RedisAppStore extends RedisHandoffStore {
     const meta = normaliseMeta(unflatten(flat));
     if (!meta || typeof scanJson !== 'string') return null;
     const scan = parseOrNull(scanJson);
-    if (!scan) return null;
+    if (!scan && !NO_SCAN_SOURCES.includes(meta.source)) return null;
     return { meta, scan, design: parseOrNull(designJson) };
   }
 
@@ -312,7 +317,7 @@ class RedisAppStore extends RedisHandoffStore {
     return Number(await this.command(['ZCARD', K.userProjects(uid)])) || 0;
   }
 
-  async saveDesign(pid, expectedRev, design) {
+  async saveDesign(pid, expectedRev, design, summary = '') {
     const meta = await this.getProjectMeta(pid);
     if (!meta) return null;
     const designJson = JSON.stringify(design);
@@ -320,7 +325,7 @@ class RedisAppStore extends RedisHandoffStore {
     const result = await this.command([
       'EVAL', SAVE_SCRIPT, '3',
       K.project(pid), K.projectDesign(pid), K.userProjects(meta.ownerId),
-      String(expectedRev), designJson, String(Number(expectedRev) + 1), String(updatedAt), String(bytesOf(designJson)), pid,
+      String(expectedRev), designJson, String(Number(expectedRev) + 1), String(updatedAt), String(bytesOf(designJson)), pid, summary,
     ]);
     if (result === 'NOTFOUND') return null;
     if (typeof result === 'string' && result.startsWith('CONFLICT:')) {
@@ -366,4 +371,4 @@ function createAppStore(env = process.env) {
   return new MemoryAppStore();
 }
 
-module.exports = { MemoryAppStore, RedisAppStore, createAppStore, newId, SAVE_SCRIPT, K };
+module.exports = { MemoryAppStore, RedisAppStore, createAppStore, newId, SAVE_SCRIPT, K, NO_SCAN_SOURCES };
