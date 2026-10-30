@@ -1,13 +1,18 @@
 /*
  * Accounts and projects on the same store as the scan handoff codes.
  *
- *   mozu:user:{uid}            HASH    email, name, picture, emailVerified, providers, createdAt, lastLoginAt
- *   mozu:session:{sid}         STRING  JSON { uid, createdAt, expiresAt, ua }, with a Redis TTL
- *   mozu:project:{pid}         HASH    ownerId, name, rooms, source, createdAt, updatedAt, rev, bytes, thumbnail?, summary?, share?
- *   mozu:project:{pid}:scan    STRING  the scan (mozu.roomscan/1 room or mozu.homescan/1 home), normalised;
- *                                      JSON null for a room entered by hand (source manual or floorplan)
- *   mozu:project:{pid}:design  STRING  JSON { version, project } — absent until the first save
- *   mozu:user:{uid}:projects   ZSET    pid scored by updatedAt (newest first)
+ *   roommuse:user:{uid}            HASH    email, name, picture, emailVerified, providers, createdAt, lastLoginAt
+ *   roommuse:session:{sid}         STRING  JSON { uid, createdAt, expiresAt, ua }, with a Redis TTL
+ *   roommuse:project:{pid}         HASH    ownerId, name, rooms, source, createdAt, updatedAt, rev, bytes, thumbnail?, summary?, share?
+ *   roommuse:project:{pid}:scan    STRING  the scan (mozu.roomscan/1 room or mozu.homescan/1 home), normalised;
+ *                                          JSON null for a room entered by hand (source manual or floorplan)
+ *   roommuse:project:{pid}:design  STRING  JSON { version, project } — absent until the first save
+ *   roommuse:user:{uid}:projects   ZSET    pid scored by updatedAt (newest first)
+ *
+ * The prefix is `roommuse:`, not the handoff codes' `mozu:`, so this app can share
+ * a Redis database with MOZU's site (same Firebase project, so the same uids)
+ * without either reading the other's accounts or projects. Scan codes stay
+ * shared: a code from either site's phone app opens on both.
  *
  * Meta, scan and design are separate so listing a gallery never fetches the
  * blobs. Design saves are conditional on the project's revision (`rev`), so
@@ -23,12 +28,12 @@ const crypto = require('node:crypto');
 const { MemoryHandoffStore, RedisHandoffStore } = require('./handoff-store');
 
 const K = {
-  user: (uid) => `mozu:user:${uid}`,
-  session: (sid) => `mozu:session:${sid}`,
-  project: (pid) => `mozu:project:${pid}`,
-  projectScan: (pid) => `mozu:project:${pid}:scan`,
-  projectDesign: (pid) => `mozu:project:${pid}:design`,
-  userProjects: (uid) => `mozu:user:${uid}:projects`,
+  user: (uid) => `roommuse:user:${uid}`,
+  session: (sid) => `roommuse:session:${sid}`,
+  project: (pid) => `roommuse:project:${pid}`,
+  projectScan: (pid) => `roommuse:project:${pid}:scan`,
+  projectDesign: (pid) => `roommuse:project:${pid}:design`,
+  userProjects: (uid) => `roommuse:user:${uid}:projects`,
 };
 
 const META_NUMBERS = ['createdAt', 'updatedAt', 'rev', 'rooms', 'bytes'];

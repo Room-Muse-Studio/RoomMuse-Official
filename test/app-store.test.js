@@ -130,6 +130,12 @@ for (const [name, make] of [
   });
 }
 
+test('redis: account and project keys are roommuse:*, apart from MOZU\'s on a shared database', () => {
+  for (const key of [K.user('u'), K.session('s'), K.project('p'), K.projectScan('p'), K.projectDesign('p'), K.userProjects('u')]) {
+    assert.match(key, /^roommuse:/, key);
+  }
+});
+
 test('redis: the keys are laid out as documented', async () => {
   const upstash = fakeUpstash();
   const store = new RedisAppStore({ url: 'https://redis.test', token: 'secret', fetch: upstash.fetch });
@@ -151,7 +157,7 @@ test('redis: the user index drops projects that no longer exist', async () => {
   const store = new RedisAppStore({ url: 'https://redis.test', token: 'secret', fetch: upstash.fetch });
   const now = Date.now();
   await store.createProject({ id: 'p1', ownerId: 'u1', name: 'One', rooms: 1, source: 'code', createdAt: now, updatedAt: now }, room('One'));
-  upstash.data.delete('mozu:project:p1'); // meta vanished behind our back
+  upstash.data.delete(K.project('p1')); // meta vanished behind our back
   assert.deepEqual(await store.listProjects('u1'), []);
   assert.equal(await store.countProjects('u1'), 0, 'stale index entry was removed');
 });
